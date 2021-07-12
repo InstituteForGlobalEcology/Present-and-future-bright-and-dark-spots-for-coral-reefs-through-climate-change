@@ -1,0 +1,12 @@
+<ScreenOverlay>
+     <name>
+         Legend: Coral Cover Relative Change (%)
+     </name>
+     <Icon>
+       <href>Input_file_path_here\legend_coral_cover_relative_change.png</href>
+     </Icon>
+     <overlayXY x="1" y="1" xunits="fraction" yunits="fraction"/>
+     <screenXY x="1" y="1" xunits="fraction" yunits="fraction"/>
+     <rotationXY x="0.5" y="0.5" xunits="fraction" yunits="fraction"/>
+     <size x="0" y="0" xunits="pixels" yunits="pixels"/>
+ </ScreenOverlay>
