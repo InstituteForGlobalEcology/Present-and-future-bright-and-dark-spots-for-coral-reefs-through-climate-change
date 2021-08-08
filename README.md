@@ -1,6 +1,7 @@
 # Present_and_future_bright_and_dark_spots_on_coral_reefs_through_climate_change
 
 Viewing KML files
+
 The following instructions have been adapted from Google Earth's Instruction Page for Adding Legends, Logos, and Banners
 https://www.google.com/earth/outreach/learn/adding-legends-logos-and-banners-to-google-earth-with-screen-overlays/
 
