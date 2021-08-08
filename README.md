@@ -11,8 +11,8 @@ To view each KML and its corresponding legend in Google Earth Pro...
 1) Download the files to your local computer.
 2) Click on a file with extension ".kml" to open it in Google Earth Pro
 3) Open the corresponding ".txt" file. It should read similar to the following:
-     <ScreenOverlay>
-          <name>
+     \<ScreenOverlay\>
+          \<name\>
                Legend: Global Coral Cover Percent
           </name>
           <Icon>
