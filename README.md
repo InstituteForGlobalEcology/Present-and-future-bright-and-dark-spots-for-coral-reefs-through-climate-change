@@ -6,6 +6,7 @@ The following instructions have been adapted from Google Earth's Instruction Pag
 https://www.google.com/earth/outreach/learn/adding-legends-logos-and-banners-to-google-earth-with-screen-overlays/
 
 Each KML has its own folder within "Present_and_future_bright_and_dark_spots_on_coral_reefs_through_climate_change"
+
 To view each KML and its corresponding legend in Google Earth Pro...
 1) Download the files to your local computer.
 2) Click on a file with extension ".kml" to open it in Google Earth Pro
