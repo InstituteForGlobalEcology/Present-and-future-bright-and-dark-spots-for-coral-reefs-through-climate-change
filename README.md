@@ -18,6 +18,8 @@ Human population data are available from NASA EOSDIS SEDAC for past years at htt
 
 Tropical-cyclone data are available from International Best Track Archive for Climate Stewardship (IBTrACS) at www.ncdc.noaa.gov/ibtracs/index.php?name=ibtracsdata. The methods for determining annual tropical-cyclone frequency are available in a study by Cacciapaglia & van Woesik: Cacciapaglia, C. W. & van Woesik, R. Reduced carbon emissions and fishing pressure are both necessary for equatorial coral reefs to keep up with rising seas. Ecography 43, 1–12 (2020).
 
+Historical SST data were derived from the World Climate Research Program (WCRP) Coupled Model Intercomparison Project Phase 6 (CMIP6) (https://esgf-node.llnl.gov/projects/cmip6/). We used search criteria: Activity: CMIP; Nominal Resolution: 1x1 degree; Grid Label: gr; Experiment ID: historical; Frequency: mon; Variable: tos. We calculated the mean from all 20 rasters that were returned from that search criteria (as of late 2019) to generate a raster for each year. We created new rasters for the mean, maximum, and standard deviation from years 1870–1980, which were pre-recorded-bleaching years.
+
 The future RCP4.5 and RCP8.5 SST data from NOAA’s Coral Reef Conservation Program are available in van Hooidonk et al.:	van Hooidonk, R., Maynard, J. A., Manzello, D. & Planes, S. Opposite latitudinal gradients in projected ocean acidification and bleaching impacts on coral reefs. Global Change Biology 20(1), 103–112 (2014).
 
 
