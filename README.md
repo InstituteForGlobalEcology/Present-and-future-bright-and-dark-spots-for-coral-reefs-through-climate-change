@@ -1,5 +1,7 @@
 # Present_and_future_bright_and_dark_spots_on_coral_reefs_through_climate_change
 
+We recommend skipping the code 0_data_processing.Rmd. Instead, use the output from 0_data_processing.Rmd which we have already obtained and provided (data.csv) for 1_run_the_beta_model and 2_maps_and_graphs.
+
 ## Data Access
 
 CoRTAD temperature data are available for download at https://www.ncei.noaa.gov/data/oceans/cortad/Version6/
