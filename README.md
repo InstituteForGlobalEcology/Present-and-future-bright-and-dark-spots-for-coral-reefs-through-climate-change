@@ -4,7 +4,9 @@ We recommend skipping the code 0_data_processing.Rmd. Instead, use the output fr
 
 ## Data Access
 
-CoRTAD temperature data are available for download at https://www.ncei.noaa.gov/data/oceans/cortad/Version6/
+If you need to run 0_data_processing.Rmd because you are working with new coral cover survey data and need to obtain the corresponding environmental variables, we provide the raster files that fit in GitHub or links to where the data and rasters can be obtained. 
+
+CoRTAD (Coral Reef Temperature Anomaly Database) temperature data are available for download at https://www.ncei.noaa.gov/data/oceans/cortad/Version6/
 
 SST CoRTAD data can be converted from a weekly resolution to a monthly resolution using Climate Data Operators (instructions at https://code.mpimet.mpg.de/projects/cdo) 
 
