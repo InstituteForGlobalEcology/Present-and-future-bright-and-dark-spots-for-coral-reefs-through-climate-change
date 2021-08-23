@@ -6,7 +6,7 @@ We recommend skipping the code 0_data_processing.Rmd. Instead, use the output fr
 
 If you need to run 0_data_processing.Rmd because you are working with new coral cover survey data and need to obtain the corresponding environmental variables, we provide the raster files that fit in GitHub or links to where the data and rasters can be obtained. 
 
-CoRTAD (Coral Reef Temperature Anomaly Database) temperature data are available for download at https://www.ncei.noaa.gov/data/oceans/cortad/Version6/
+CoRTAD (Coral Reef Temperature Anomaly Database) temperature data, from GHRSST and the US National Centers for Environmental Information and supported in part by a grant from the NOAA Climate Data Record (CDR) Program for satellites, are available for download at https://www.ncei.noaa.gov/data/oceans/cortad/Version6/
 
 SST CoRTAD data can be converted from a weekly resolution to a monthly resolution using Climate Data Operators (instructions at https://code.mpimet.mpg.de/projects/cdo) 
 
@@ -16,6 +16,7 @@ Coral diversity data were made available by Veron, http://www.coralsoftheworld.o
 
 Human population data are available from NASA EOSDIS SEDAC for past years at https://sedac.ciesin.columbia.edu/data/set/popdynamics-global-pop-count-time-series-estimates/data-download#close and projections for future years at https://sedac.ciesin.columbia.edu/data/set/popdynamics-1-km-downscaled-pop-base-year-projection-ssp-2000-2100-rev01
 
+Tropical-cyclone data are available from International Best Track Archive for Climate Stewardship (IBTrACS) at www.ncdc.noaa.gov/ibtracs/index.php?name=ibtracsdata. The methods for determining annual tropical-cyclone frequency are available in a study by Cacciapaglia & van Woesik: Cacciapaglia, C., & van Woesik, R. (2016). Climate-change refugia:Shading reef corals by turbidity. Global Change Biology, 22, 1145–1154. https://doi.org/10.1111/gcb.13166
 
 
 ## Differences in maps between code runs
