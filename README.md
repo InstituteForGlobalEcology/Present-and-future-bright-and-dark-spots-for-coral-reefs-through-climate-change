@@ -6,6 +6,10 @@ CoRTAD temperature data are available for download at https://www.ncei.noaa.gov/
 
 SST CoRTAD data can be converted from a weekly resolution to a monthly resolution using Climate Data Operators (instructions at https://code.mpimet.mpg.de/projects/cdo) 
 
+Coral diversity data were made available by Veron, http://www.coralsoftheworld.org/page/home/. You may also contact the corresponding author of this article to request diversity data if necessary.
+
+
+
 ## Differences in maps between code runs
 
 When you make the maps and KML files for **future coral cover**, **future absolute change in coral cover**, and **future relative change in coral cover** please note that the maps may differ very slightly each time you run the code, and may differ slightly from the maps in this publication. This is because when making future projections, some numbers are drawn from a distribution, specifically in the lines of code containing "rbeta", such as "mean(rbeta(n=1000, shape1=shape1, shape2=shape2))." As coral cover at over 7,000 reef sites is examined and projected, a few out of the 7,000+ sites will change. For example coral cover projections at a particular site may change between code runs from 9% to 10%, so the color of that reef on the maps would change. Do not be concerned -- these slight differences between runs are expected.
