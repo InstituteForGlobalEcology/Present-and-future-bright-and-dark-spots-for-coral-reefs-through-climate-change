@@ -3,6 +3,7 @@
 ## Data Access
 
 CoRTAD temperature data are available for download at https://www.ncei.noaa.gov/data/oceans/cortad/Version6/
+
 SST CoRTAD data can be converted from a weekly resolution to a monthly resolution using Climate Data Operators (instructions at https://code.mpimet.mpg.de/projects/cdo) 
 
 ## Differences in maps between code runs
