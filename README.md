@@ -16,7 +16,9 @@ Coral diversity data were made available by Veron, http://www.coralsoftheworld.o
 
 Human population data are available from NASA EOSDIS SEDAC for past years at https://sedac.ciesin.columbia.edu/data/set/popdynamics-global-pop-count-time-series-estimates/data-download#close and projections for future years at https://sedac.ciesin.columbia.edu/data/set/popdynamics-1-km-downscaled-pop-base-year-projection-ssp-2000-2100-rev01
 
-Tropical-cyclone data are available from International Best Track Archive for Climate Stewardship (IBTrACS) at www.ncdc.noaa.gov/ibtracs/index.php?name=ibtracsdata. The methods for determining annual tropical-cyclone frequency are available in a study by Cacciapaglia & van Woesik: Cacciapaglia, C., & van Woesik, R. (2016). Climate-change refugia:Shading reef corals by turbidity. Global Change Biology, 22, 1145–1154. https://doi.org/10.1111/gcb.13166
+Tropical-cyclone data are available from International Best Track Archive for Climate Stewardship (IBTrACS) at www.ncdc.noaa.gov/ibtracs/index.php?name=ibtracsdata. The methods for determining annual tropical-cyclone frequency are available in a study by Cacciapaglia & van Woesik: Cacciapaglia, C. W. & van Woesik, R. Reduced carbon emissions and fishing pressure are both necessary for equatorial coral reefs to keep up with rising seas. Ecography 43, 1–12 (2020).
+
+The future RCP4.5 and RCP8.5 SST data from NOAA’s Coral Reef Conservation Program are available in van Hooidonk et al.:	van Hooidonk, R., Maynard, J. A., Manzello, D. & Planes, S. Opposite latitudinal gradients in projected ocean acidification and bleaching impacts on coral reefs. Global Change Biology 20(1), 103–112 (2014).
 
 
 ## Differences in maps between code runs
