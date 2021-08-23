@@ -10,9 +10,11 @@ CoRTAD (Coral Reef Temperature Anomaly Database) temperature data are available 
 
 SST CoRTAD data can be converted from a weekly resolution to a monthly resolution using Climate Data Operators (instructions at https://code.mpimet.mpg.de/projects/cdo) 
 
-Kd_490 (the diffuse attenuation coefficient of light at the 490 nm wavelength) data, positively related to turbidity, are available at NASA's (National Aeronautics and Space Administration's) Earth Observing System Data and Information System (EOSDIS) Modis-Aqua satellite database https://oceandata.sci.gsfc.nasa.gov/directaccess/MODIS-Aqua/Mapped/Monthly/4km/Kd_490/
+Kd_490 (the diffuse attenuation coefficient of light at the 490 nm wavelength) data, positively related to turbidity, are available at NASA (National Aeronautics and Space Administration), Goddard Space Flight Center, Ocean Ecology Laboratory, Ocean Biology Processing Group, and the SeaWiFS (Sea-viewing Wide Field-of-view Sensor) Ocean Color Data Earth Observing System Data and Information System (EOSDIS) Modis-Aqua satellite database https://oceandata.sci.gsfc.nasa.gov/directaccess/MODIS-Aqua/Mapped/Monthly/4km/Kd_490/
 
 Coral diversity data were made available by Veron, http://www.coralsoftheworld.org/page/home/. You may also contact the corresponding author of this article to request diversity data if necessary.
+
+Human population data are available from NASA EOSDIS SEDAC for past years at https://sedac.ciesin.columbia.edu/data/set/popdynamics-global-pop-count-time-series-estimates/data-download#close and projections for future years at https://sedac.ciesin.columbia.edu/data/set/popdynamics-1-km-downscaled-pop-base-year-projection-ssp-2000-2100-rev01
 
 
 
