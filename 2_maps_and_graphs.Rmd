@@ -1,0 +1,1355 @@
+---
+title: "Untitled"
+author: "SS"
+date: "July 11, 2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+library(GISTools)
+library(viridis)
+
+home = "C:/Users/Shannon/Desktop/Ecoregions"
+coral_cover_directory = "C:/Users/Shannon/Desktop/Ecoregions/Coral cover"
+output_directory = "C:/Users/Shannon/Desktop/Ecoregions/Coral cover/output"
+cyclone_directory = "D:/Lab Data/Global/Cyclone/cyclone"
+
+setwd(home)
+Sys.sleep(1)
+source(file = "MyBUGSOutput.R")
+source(file = "HighstatLibV10.R")  
+source(file = "MCMCSupportHighstatV4.R")
+
+shapefiles_directory = "C:/Users/Shannon/Desktop/Ecoregions/shapefiles"
+
+```{r read in and format shapefiles of a world map, and ecoregion boundaries}
+wlrd.p <- readOGR(file.path(shapefiles_directory,'TM_WORLD_BORDERS_SIMPL_PC150.shp'))
+ECO <- readOGR(file.path(shapefiles_directory,'ecoregion_exportPolygon.shp')) # ecoregions
+
+ecos_list<-c()
+for (i in 1:150){
+  eco_i<-Polygons((Filter(function(f){f@ringDir==1}, ECO@polygons[[i]]@Polygons)), ID=i)
+  ecos_list<-append(ecos_list, values=eco_i, after = length(ecos_list))
+  #include a brief pause (Sys.sleep) because if running in Rstudio, it takes a while for the code to run and for the value to be loaded into the global environment. If there is no pause, the next iteration of the loop starts before the previous value is fully saved and loaded into the environment, and there can be errors in the shapefile
+  Sys.sleep(.2)
+}
+ecos<-SpatialPolygons(ecos_list)
+
+ecos$ERG<-ECO$ERG
+ecos$Ecoregion<-ECO$Ecoregion
+ecos@proj4string<-ECO@proj4string
+ecos@plotOrder<-ECO@plotOrder
+ecos@data<-ECO@data
+
+ECO<-ecos
+```
+
+```{r plotmap_function}
+plot.map<- function(database,center,transf=T,...){
+  Obj <- map(database,...,plot=F)
+  coord <- cbind(Obj[[1]],Obj[[2]])
+  newproj <- "+proj=merc +lon_0=150 +k=1 +x_0=0 +y_0=0 +ellps=WGS84 +towgs84=0,0,0,0,0,0,0 +units=m +no_defs" #utm
+  nextproj<-"+proj=longlat +datum=WGS84 +ellps=WGS84 +towgs84=0,0,0" #latlong
+  # split up the coordinates
+  id <- rle(!is.na(coord[,1]))
+  id <- matrix(c(1,cumsum(id$lengths)),ncol=2,byrow=T)
+  polygons <- apply(id,1,function(i){coord[i[1]:i[2],]})
+  
+  # split up polygons that differ too much
+  polygons <- lapply(polygons,function(x){
+    x[,1] <- x[,1] + center
+    x[,1] <- ifelse(x[,1]>180,x[,1]-360,x[,1])
+    if(sum(diff(x[,1])>300,na.rm=T) >0){
+      id <- x[,1] < 0
+      x <- rbind(x[id,],c(NA,NA),x[!id,])
+    }
+    x
+  })
+  # reconstruct the object
+  polygons <- do.call(rbind,polygons)
+  
+  
+  colnames(polygons)<-c("x",'y')
+  polygons<-as.data.frame(polygons)
+  z<-complete.cases(polygons)
+  p<-z
+  z<-cbind(z,z)
+  polygons<-polygons[complete.cases(polygons),]
+  coordinates(polygons)<-~x+y
+  proj4string(polygons)<-CRS(nextproj)
+  if(transf==T){ polygons<-spTransform(polygons,CRS(newproj))}
+  
+  z[p==F,]<-c(NA,NA)
+  z[which(p==T),]<-coordinates(polygons)
+  Obj[[1]] <- z[,1]
+  Obj[[2]] <- z[,2]
+  
+  map(Obj,...)
+}
+```
+
+data<-read.csv(file = file.path(output_directory,'data_for_maps.csv'))
+
+```{r map of modern coral cover. Figure 1}
+windowsFonts(Arial=windowsFont("TT Arial"))
+par(family="Arial")
+
+min_coral_cover_break<-0
+max_coral_cover_break<-.5
+steps_by<-.01
+num_palette_steps<- (max_coral_cover_break-min_coral_cover_break)/steps_by+1
+
+coral_cover_brks<-c(seq(from=min_coral_cover_break, to=max_coral_cover_break, by=steps_by),1)
+pal<-inferno(num_palette_steps)
+coral_cover_grps<-as.ordered(cut(as.matrix(data$Average_coral_cover), coral_cover_brks, include.lowest=TRUE,dig.lab=2))
+
+tiff(file=file.path(home,'Coral cover','current_coral_cover_20211213.tif'),height=800,width=3000,res=300)
+#png(file=file.path(home,'Coral cover','current_coral_cover_20200916.png'),height=800,width=3000,res=300)
+par(mgp=c(0.5,0.6,0), mar=c(1,1,1,1))
+plot(wlrd.p,ylim=c(-4400000,4400000),xlim=c(-2000000,2000000), col='darkseagreen3',border='darkseagreen4')
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0), cex.axis=.8)
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4, cex.axis=.8)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+box()
+
+xy <- SpatialPointsDataFrame(data=data,coords=data[c('Longitude.Degrees','Latitude.Degrees')], proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+xy <- spTransform(xy,CRS("+proj=eqc +lat_ts=0 +lat_0=0 +lon_0=150 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+#points(xy, cex=1.0, pch=19, col=pal[unclass(coral_cover_grps)])
+points(xy[data$Average_coral_cover>=.5,], cex=1.0, pch=19, col=pal[unclass(coral_cover_grps)][data$Average_coral_cover>=.5])
+points(xy[data$Average_coral_cover<.5,], cex=1.0, pch=19, col=pal[unclass(coral_cover_grps)][data$Average_coral_cover<.5])
+
+windowsFonts(A=windowsFont('Arial Unicode MS'))
+text(-7868896,-2922012,'Indian Ocean',cex=1.1, family='A')
+text(9438742,487176,'Pacific Ocean',cex=1.1, family='A')
+text(x=(-16654136+111319.4*305), y=1615153*2.15,'Atlantic Ocean',cex=1.1, family='A')
+north.arrow(x=(-16654136+111319.4*320), y=1615153*1, len=(111319.4*2), lab="N", cex=.7, cex.lab=1.1)
+
+#legend
+plotrix::color.legend(9684797.171+25e5,-28*111319.4666666667,15807371.62+25e5,-23.5*111319.4666666667,legend=c(1,max_coral_cover_break*100),rect.col=pal,cex=1)
+text(((15807371.62+25e5)-(9684797.171+25e5))/2+(9684797.171+25e5),-18*111319.4666666667,"% coral cover")
+dev.off()
+```
+
+coordinates<-cbind(lons=as.numeric(data$Longitude.Degrees), lats=as.numeric(data$Latitude.Degrees))
+xy <- SpatialPoints(coords=coordinates, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+```{r kml of modern coral cover. KML corresponding to Figure 1}
+xy_modern_coral_cover_kml<-spTransform(xy, "+proj=longlat +ellps=WGS84 +datum=WGS84")
+sps<-c()
+
+for(i in 1:length(xy_modern_coral_cover_kml)){
+  circle_poly<-circle.polygon(
+    x=xy_modern_coral_cover_kml@coords[i,1],
+    y=xy_modern_coral_cover_kml@coords[i,2],
+    radius = 8, 
+    units = "m",
+    poly.type = "cart.earth"
+  )
+  p<-Polygons(list(Polygon(circle_poly)),i)
+  sps<-append(sps, p)
+}
+spss<-SpatialPolygons(sps, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+coral_cover_brks<-c(seq(from=min_coral_cover_break, to=max_coral_cover_break, by=steps_by),1)
+pal<-inferno(num_palette_steps)
+coral_cover_grps<-as.ordered(cut(as.matrix(data$Average_coral_cover), coral_cover_brks, include.lowest=TRUE,dig.lab=2))
+spss_df<-SpatialPolygonsDataFrame(spss, data=data.frame("col"=coral_cover_grps, "cover"=data$Average_coral_cover))
+
+setwd(output_directory)
+kml_open("kml_modern_coral_cover.kml")
+kml_layer.SpatialPolygons(obj=spss_df, colour=spss_df$col, colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+kml_close("kml_modern_coral_cover.kml")
+```
+
+stdevs<-1.5
+```{r map of bright spots and dark spots. Figure 3}
+windowsFonts(Arial=windowsFont("TT Arial"))
+par(family="Arial")
+tiff(file=file.path(output_directory,'current_coral_cover_bright_and_dark_spots_150_sd.tif'),height=800,width=3300,res=300)
+#png(file=file.path(output_directory,'current_coral_cover_bright_and_dark_spots_150_sd.png'),height=800,width=3300,res=300)
+par(mgp=c(0.5,0.6,0), mar=c(1,2.5,1,1), mfrow=c(1,1))
+plot(wlrd.p,ylim=c(-4400000,4400000),xlim=c(-2000000,2000000), col='grey90',border='grey70', ylab="", cex.lab=2.5)
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+box()
+
+xy <- SpatialPointsDataFrame(data=data,coords=data[c('Longitude.Degrees','Latitude.Degrees')], proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+xy <- spTransform(xy,CRS("+proj=eqc +lat_ts=0 +lat_0=0 +lon_0=150 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+xy$col<-"gray"
+xy$col[(data$Average_coral_cover-data$Y_New)<(-1*stdevs*sd(data$Average_coral_cover))]<-"black"
+xy$col[(data$Average_coral_cover-data$Y_New)>(stdevs*sd(data$Average_coral_cover))]<-"orange"
+points(xy[xy$col=="gray",], col="gray", pch=16, cex=.9)
+points(xy[xy$col=="orange",], col="orange", pch=16, cex=.9)
+points(xy[xy$col=="black",], col="black", pch=16, cex=.9)
+
+##windowsFonts(A=windowsFont('Arial Unicode MS'))
+text(-7868896,-2922012,'Indian Ocean',cex=1,family='Arial')
+text(9438742,487176,'Pacific Ocean',cex=1,family='Arial')
+text(x=(-16654136+111319.4*305), y=1615153*2.15,'Atlantic Ocean',cex=1, family='Arial')
+north.arrow(x=(-16654136+111319.4*320), y=1615153*1, len=(111319.4*2), lab="N", cex=.7, cex.lab=1.1)
+
+#legend
+plotrix::color.legend(9684797.171+25e5,-28*111319.4666666667,15807371.62+25e5,-23.5*111319.4666666667,legend=c("Dark spot", "", "Bright spot"), rect.col=c("black", "gray", "orange"),cex=.8)
+text(((15807371.62+25e5)-(9684797.171+25e5))/2+(9684797.171+25e5),-16*111319.4666666667,"", cex=1.5)
+dev.off()
+```
+
+```{r kml bright and dark spots. KML corresponding to Figure 3}
+xy_bright_and_dark_spots_kml<-spTransform(xy, "+proj=longlat +ellps=WGS84 +datum=WGS84")
+sps<-c()
+
+for(i in 1:length(xy_bright_and_dark_spots_kml)){
+  circle_poly<-circle.polygon(
+    x=xy_bright_and_dark_spots_kml@coords[i,1],
+    y=xy_bright_and_dark_spots_kml@coords[i,2],
+    radius = 8, 
+    units = "m",
+    poly.type = "cart.earth"
+  )
+  p<-Polygons(list(Polygon(circle_poly)),i)
+  sps<-append(sps, p)
+}
+spss<-SpatialPolygons(sps, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+coral_cover_brks<-c(-3, -1.5, 1.5, 3)
+pal<-c("black", "gray", "yellow")
+coral_cover_grps<-cut(as.matrix(data$deviations_from_expected), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+spss_df<-SpatialPolygonsDataFrame(spss, data=data.frame("col"=coral_cover_grps, "spot"=data$deviations_from_expected))
+
+setwd(output_directory)
+kml_open("kml_bright_and_dark_spots.kml")
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$spot<(1.5) & spss_df$spot>(-1.5),], colour="gray", colour_scale="gray", outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$spot>(1.5),], colour="yellow", colour_scale="yellow", outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$spot<(-1.5),], colour="black", colour_scale="black", outline=FALSE, alpha=0.7)
+
+kml_close("kml_bright_and_dark_spots.kml")
+```
+
+```{r kml legend, bright and dark spots}
+kml_legend.bar(x=pal, width=200, height=200, pointsize = 18, legend.file="legend_bright_and_dark_spots.png", legend.pal=pal, z.lim = range(x, na.rm=TRUE, finite=TRUE), factor.labels=c('Dark spot', 'Neither','Bright spot'), png.type = "cairo-png")
+```
+
+
+x_vals=seq(from=0, to=100, by=.001)
+y_vals=x_vals
+
+```{r skip this one. plot of current coral cover expectation vs future coral cover expectation, for years 2050 and 2100 under climate change scenarios RCP4.5 and RCP8.5}
+#maybe skip this plot
+tiff(file=file.path(output_directory,'current_coral_cover_vs_future_coral_cover_RCP45_and_RCP85_years_2050_and_2100.tif'),height=3000,width=3200,res=300)
+par(mfrow=c(2,2))
+plot(x=data$Y_New[!is.na(data$Y_future_RCP45_yr_2050)]*100, y=data$Y_future_RCP45_yr_2050[!is.na(data$Y_future_RCP45_yr_2050)]*100, ylab="Coral cover (%), future prediction", xlab="Coral cover (%), current model prediction", ylim=c(0,100), xlim=c(0,100), main="RCP4.5, coral cover, year 2050", cex.lab=1.5, cex.main=2.1)
+lines(x_vals, y_vals, col="red")
+plot(x=data$Y_New[!is.na(data$Y_future_RCP45_yr_2100)]*100, y=data$Y_future_RCP45_yr_2100[!is.na(data$Y_future_RCP45_yr_2100)]*100, ylab="Coral cover (%), future prediction", xlab="Coral cover (%), current model prediction", ylim=c(0,100), xlim=c(0,100), main="RCP4.5, coral cover, year 2100", cex.lab=1.5, cex.main=2.1)
+lines(x_vals, y_vals, col="red")
+plot(x=data$Y_New[!is.na(data$Y_future_RCP85_yr_2050)]*100, y=data$Y_future_RCP85_yr_2050[!is.na(data$Y_future_RCP85_yr_2050)]*100, ylab="Coral cover (%), future prediction", xlab="Coral cover (%), current model prediction", ylim=c(0,100), xlim=c(0,100), main="RCP8.5, coral cover, year 2050", cex.lab=1.5, cex.main=2.1)
+lines(x_vals, y_vals, col="red")
+plot(x=data$Y_New[!is.na(data$Y_future_RCP85_yr_2100)]*100, y=data$Y_future_RCP85_yr_2100[!is.na(data$Y_future_RCP85_yr_2100)]*100, ylab="Coral cover (%), future prediction", xlab="Coral cover (%), current model prediction", ylim=c(0,100), xlim=c(0,100), main="RCP8.5, coral cover, year 2100", cex.lab=1.5, cex.main=2.1)
+lines(x_vals, y_vals, col="red")
+dev.off()
+```
+
+min_coral_cover_break<-0
+max_coral_cover_break<-.5
+steps_by<-.01
+num_palette_steps<- (max_coral_cover_break-min_coral_cover_break)/steps_by
+
+```{r Supplementary Figure 24. map of future coral cover for years 2050 and 2100 under climate change scenarios RCP4.5 and RCP8.5}
+coral_cover_brks<-c(seq(from=min_coral_cover_break, to=max_coral_cover_break, by=steps_by),1)
+pal<-inferno(num_palette_steps)
+
+tiff(file=file.path(output_directory,'future_coral_cover_20210808.tif'),height=3200,width=3300,res=300)
+#png(file=file.path(output_directory,'future_coral_cover.png'),height=3200,width=3300,res=300)
+par(mgp=c(0.5,0.6,0), mar=c(1,2.5,1,1), mfrow=c(4,1))
+plot(wlrd.p,ylim=c(-4400000,4400000),xlim=c(-2000000,2000000), col='darkseagreen3',border='darkseagreen4', ylab="RCP4.5 year 2050", cex.lab=2.5)
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+box()
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP45_yr_2050), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+xy <- SpatialPointsDataFrame(data=data,coords=data[c('Longitude.Degrees','Latitude.Degrees')], proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+xy <- spTransform(xy,CRS("+proj=eqc +lat_ts=0 +lat_0=0 +lon_0=150 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+points(xy[data$Y_future_RCP45_yr_2050>=.5,], cex=1.6, pch=19, col=pal[unclass(coral_cover_grps)][data$Y_future_RCP45_yr_2050>=.5])
+points(xy[data$Y_future_RCP45_yr_2050<.5,], cex=1.6, pch=19, col=pal[unclass(coral_cover_grps)][data$Y_future_RCP45_yr_2050<.5])
+
+windowsFonts(A=windowsFont('Arial Unicode MS'))
+text(-7868896,-2922012,'Indian Ocean',cex=1.1, family='A')
+text(9438742,487176,'Pacific Ocean',cex=1.1, family='A')
+text(x=(-16654136+111319.4*305), y=1615153*2.15,'Atlantic Ocean',cex=1.1, family='A')
+north.arrow(x=(-16654136+111319.4*320), y=1615153*1, len=(111319.4*2), lab="N", cex=.7, cex.lab=1.1)
+
+text(x = -19868896, y = 3715153, labels = "(a)", cex=2, xpd = NA)
+#legend
+plotrix::color.legend(9684797.171+25e5,-28*111319.4666666667,15807371.62+25e5,-23.5*111319.4666666667,legend=c(1,max_coral_cover_break*100),rect.col=pal,cex=1)
+text(((15807371.62+25e5)-(9684797.171+25e5))/2+(9684797.171+25e5),-18*111319.4666666667,"% coral cover")
+
+plot(wlrd.p,ylim=c(-4400000,4400000),xlim=c(-2000000,2000000), col='darkseagreen3',border='darkseagreen4', ylab="RCP4.5 year 2100", cex.lab=2.5)
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+box()
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP45_yr_2100), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+xy <- SpatialPointsDataFrame(data=data,coords=data[c('Longitude.Degrees','Latitude.Degrees')], proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+xy <- spTransform(xy,CRS("+proj=eqc +lat_ts=0 +lat_0=0 +lon_0=150 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+points(xy[data$Y_future_RCP45_yr_2100>=.5,], cex=1.6, pch=19, col=pal[unclass(coral_cover_grps)][data$Y_future_RCP45_yr_2100>=.5])
+points(xy[data$Y_future_RCP45_yr_2100<.5,], cex=1.6, pch=19, col=pal[unclass(coral_cover_grps)][data$Y_future_RCP45_yr_2100<.5])
+
+windowsFonts(A=windowsFont('Arial Unicode MS'))
+text(-7868896,-2922012,'Indian Ocean',cex=1.1, family='A')
+text(9438742,487176,'Pacific Ocean',cex=1.1, family='A')
+text(x=(-16654136+111319.4*305), y=1615153*2.15,'Atlantic Ocean',cex=1.1, family='A')
+north.arrow(x=(-16654136+111319.4*320), y=1615153*1, len=(111319.4*2), lab="N", cex=.7, cex.lab=1.1)
+text(x = -19868896, y = 3715153, labels = "(b)", cex=2, xpd = NA)
+#legend
+plotrix::color.legend(9684797.171+25e5,-28*111319.4666666667,15807371.62+25e5,-23.5*111319.4666666667,legend=c(1,max_coral_cover_break*100),rect.col=pal,cex=1)
+text(((15807371.62+25e5)-(9684797.171+25e5))/2+(9684797.171+25e5),-18*111319.4666666667,"% coral cover")
+
+plot(wlrd.p,ylim=c(-4400000,4400000),xlim=c(-2000000,2000000), col='darkseagreen3',border='darkseagreen4', ylab="RCP8.5 year 2050", cex.lab=2.5)
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+box()
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP85_yr_2050), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+xy <- SpatialPointsDataFrame(data=data,coords=data[c('Longitude.Degrees','Latitude.Degrees')], proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+xy <- spTransform(xy,CRS("+proj=eqc +lat_ts=0 +lat_0=0 +lon_0=150 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+points(xy[data$Y_future_RCP85_yr_2050>=.5,], cex=1.6, pch=19, col=pal[unclass(coral_cover_grps)][data$Y_future_RCP85_yr_2050>=.5])
+points(xy[data$Y_future_RCP85_yr_2050<.5,], cex=1.6, pch=19, col=pal[unclass(coral_cover_grps)][data$Y_future_RCP85_yr_2050<.5])
+
+windowsFonts(A=windowsFont('Arial Unicode MS'))
+text(-7868896,-2922012,'Indian Ocean',cex=1.1, family='A')
+text(9438742,487176,'Pacific Ocean',cex=1.1, family='A')
+text(x=(-16654136+111319.4*305), y=1615153*2.15,'Atlantic Ocean',cex=1.1, family='A')
+north.arrow(x=(-16654136+111319.4*320), y=1615153*1, len=(111319.4*2), lab="N", cex=.7, cex.lab=1.1)
+text(x = -19868896, y = 3715153, labels = "(c)", cex=2, xpd = NA)
+#legend
+plotrix::color.legend(9684797.171+25e5,-28*111319.4666666667,15807371.62+25e5,-23.5*111319.4666666667,legend=c(1,max_coral_cover_break*100),rect.col=pal,cex=1)
+text(((15807371.62+25e5)-(9684797.171+25e5))/2+(9684797.171+25e5),-18*111319.4666666667,"% coral cover")
+
+plot(wlrd.p,ylim=c(-4400000,4400000),xlim=c(-2000000,2000000), col='darkseagreen3',border='darkseagreen4', ylab="RCP8.5 year 2100", cex.lab=2.5)
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+box()
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP85_yr_2100), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+xy <- SpatialPointsDataFrame(data=data,coords=data[c('Longitude.Degrees','Latitude.Degrees')], proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+xy <- spTransform(xy,CRS("+proj=eqc +lat_ts=0 +lat_0=0 +lon_0=150 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+points(xy[data$Y_future_RCP85_yr_2100>.5,], cex=1.6, pch=19, col=pal[unclass(coral_cover_grps)][data$Y_future_RCP85_yr_2100>.5])
+points(xy[data$Y_future_RCP85_yr_2100<.5,], cex=1.6, pch=19, col=pal[unclass(coral_cover_grps)][data$Y_future_RCP85_yr_2100<.5])
+
+windowsFonts(A=windowsFont('Arial Unicode MS'))
+text(-7868896,-2922012,'Indian Ocean',cex=1.1, family='A')
+text(9438742,487176,'Pacific Ocean',cex=1.1, family='A')
+text(x=(-16654136+111319.4*305), y=1615153*2.15,'Atlantic Ocean',cex=1.1, family='A')
+north.arrow(x=(-16654136+111319.4*320), y=1615153*1, len=(111319.4*2), lab="N", cex=.7, cex.lab=1.1)
+text(x = -19868896, y = 3715153, labels = "(d)", cex=2, xpd = NA)
+#legend
+plotrix::color.legend(9684797.171+25e5,-28*111319.4666666667,15807371.62+25e5,-23.5*111319.4666666667,legend=c(1,max_coral_cover_break*100),rect.col=pal,cex=1)
+text(((15807371.62+25e5)-(9684797.171+25e5))/2+(9684797.171+25e5),-18*111319.4666666667,"% coral cover")
+
+dev.off()
+```
+
+coordinates<-cbind(lons=as.numeric(data$Longitude.Degrees), lats=as.numeric(data$Latitude.Degrees))
+xy <- SpatialPoints(coords=coordinates, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+```{r kml future coral cover RCP4.5 year 2050}
+num_palette_steps<- (max_coral_cover_break-min_coral_cover_break)/steps_by+1
+
+xy_coral_cover_RCP45_2050_kml<-spTransform(xy, "+proj=longlat +ellps=WGS84 +datum=WGS84")
+sps<-c()
+
+for(i in 1:length(xy_coral_cover_RCP45_2050_kml)){
+  circle_poly<-circle.polygon(
+    x=xy_coral_cover_RCP45_2050_kml@coords[i,1],
+    y=xy_coral_cover_RCP45_2050_kml@coords[i,2],
+    radius = 8,
+    units = "m",
+    poly.type = "cart.earth"
+  )
+  p<-Polygons(list(Polygon(circle_poly)),i)
+  sps<-append(sps, p)
+}
+spss<-SpatialPolygons(sps, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+coral_cover_brks<-c(seq(from=min_coral_cover_break, to=max_coral_cover_break, by=steps_by),1)
+pal<-inferno(num_palette_steps)
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP45_yr_2050), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+spss_df<-SpatialPolygonsDataFrame(spss, data=data.frame("col"=coral_cover_grps, "percent"=data$Y_future_RCP45_yr_2050))
+
+setwd(output_directory)
+kml_open("kml_coral_cover_RCP45_2050.kml")
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(.5),], colour=spss_df$col[spss_df$percent>=(0.5)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent<(0.5),], colour=spss_df$col[spss_df$percent<(0.5)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_close("kml_coral_cover_RCP45_2050.kml")
+```
+
+```{r kml future coral cover RCP4.5 year 2100}
+xy_coral_cover_RCP45_2100_kml<-spTransform(xy, "+proj=longlat +ellps=WGS84 +datum=WGS84")
+sps<-c()
+
+for(i in 1:length(xy_coral_cover_RCP45_2100_kml)){
+  circle_poly<-circle.polygon(
+    x=xy_coral_cover_RCP45_2100_kml@coords[i,1],
+    y=xy_coral_cover_RCP45_2100_kml@coords[i,2],
+    radius = 8,
+    units = "m",
+    poly.type = "cart.earth"
+  )
+  p<-Polygons(list(Polygon(circle_poly)),i)
+  sps<-append(sps, p)
+}
+spss<-SpatialPolygons(sps, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+coral_cover_brks<-c(seq(from=min_coral_cover_break, to=max_coral_cover_break, by=steps_by),1)
+pal<-inferno(num_palette_steps)
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP45_yr_2100), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+spss_df<-SpatialPolygonsDataFrame(spss, data=data.frame("col"=coral_cover_grps, "percent"=data$Y_future_RCP45_yr_2100))
+
+setwd(output_directory)
+kml_open("kml_coral_cover_RCP45_2100.kml")
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(.5),], colour=spss_df$col[spss_df$percent>=(0.5)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent<(0.5),], colour=spss_df$col[spss_df$percent<(0.5)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_close("kml_coral_cover_RCP45_2100.kml")
+```
+
+```{r kml future coral cover RCP8.5 year 2050}
+xy_coral_cover_RCP85_2050_kml<-spTransform(xy, "+proj=longlat +ellps=WGS84 +datum=WGS84")
+sps<-c()
+
+for(i in 1:length(xy_coral_cover_RCP85_2050_kml)){
+  circle_poly<-circle.polygon(
+    x=xy_coral_cover_RCP85_2050_kml@coords[i,1],
+    y=xy_coral_cover_RCP85_2050_kml@coords[i,2],
+    radius = 8,
+    units = "m",
+    poly.type = "cart.earth"
+  )
+  p<-Polygons(list(Polygon(circle_poly)),i)
+  sps<-append(sps, p)
+}
+spss<-SpatialPolygons(sps, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+coral_cover_brks<-c(seq(from=min_coral_cover_break, to=max_coral_cover_break, by=steps_by),1)
+pal<-inferno(num_palette_steps)
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP85_yr_2050), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+spss_df<-SpatialPolygonsDataFrame(spss, data=data.frame("col"=coral_cover_grps, "percent"=data$Y_future_RCP85_yr_2050))
+
+setwd(output_directory)
+kml_open("kml_coral_cover_RCP85_2050.kml")
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(.5),], colour=spss_df$col[spss_df$percent>=(0.5)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent<(0.5),], colour=spss_df$col[spss_df$percent<(0.5)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_close("kml_coral_cover_RCP85_2050.kml")
+```
+
+```{r kml future coral cover RCP8.5 year 2100}
+xy_coral_cover_RCP85_2100_kml<-spTransform(xy, "+proj=longlat +ellps=WGS84 +datum=WGS84")
+sps<-c()
+
+for(i in 1:length(xy_coral_cover_RCP85_2100_kml)){
+  circle_poly<-circle.polygon(
+    x=xy_coral_cover_RCP85_2100_kml@coords[i,1],
+    y=xy_coral_cover_RCP85_2100_kml@coords[i,2],
+    radius = 8,
+    units = "m",
+    poly.type = "cart.earth"
+  )
+  p<-Polygons(list(Polygon(circle_poly)),i)
+  sps<-append(sps, p)
+}
+spss<-SpatialPolygons(sps, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+coral_cover_brks<-c(seq(from=min_coral_cover_break, to=max_coral_cover_break, by=steps_by),1)
+pal<-inferno(num_palette_steps)
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP85_yr_2100), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+spss_df<-SpatialPolygonsDataFrame(spss, data=data.frame("col"=coral_cover_grps, "percent"=data$Y_future_RCP85_yr_2100))
+
+setwd(output_directory)
+kml_open("kml_coral_cover_RCP85_2100.kml")
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(.5),], colour=spss_df$col[spss_df$percent>=(0.5)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent<(0.5),], colour=spss_df$col[spss_df$percent<(0.5)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_close("kml_coral_cover_RCP85_2100.kml")
+```
+
+```{r kml legend, percent coral cover}
+kml_legend.bar(x=pal, width=200, height=200, pointsize = 18, legend.file="legend_coral_cover.png", legend.pal=pal, z.lim = range(x, na.rm=TRUE, finite=TRUE), factor.labels=c('1%', rep('', times=23), '25%', rep('', times=24), '50%+'), png.type = "cairo-png")
+```
+
+
+
+```{r Figure 4. map of absolute future coral cover change}
+windowsFonts(Arial=windowsFont("TT Arial"))
+par(family="Arial")
+tiff(file=file.path(output_directory,'future_coral_cover_change_20210808.tif'),height=3200,width=3300,res=300)
+#png(file=file.path(output_directory,'future_coral_cover_change.png'),height=3200,width=3300,res=300)
+par(mgp=c(0.5,0.6,0), mar=c(1,2.5,1,1), mfrow=c(4,1))
+plot(wlrd.p,ylim=c(-4400000,4400000),xlim=c(-2000000,2000000), col='darkseagreen3',border='darkseagreen4', ylab="RCP4.5 year 2050", cex.lab=2.5)
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+box()
+
+xy <- SpatialPointsDataFrame(data=data[!is.na(data$sst_mean_rcp45_2050),],coords=data[!is.na(data$sst_mean_rcp45_2050),][c('Longitude.Degrees','Latitude.Degrees')], proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+xy <- spTransform(xy,CRS("+proj=eqc +lat_ts=0 +lat_0=0 +lon_0=150 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+xy$col<-"red"
+xy$col[data$Y_future_RCP45_yr_2050_change[!is.na(data$sst_mean_rcp45_2050)]>=(-.1)]<-"darkorange"
+xy$col[data$Y_future_RCP45_yr_2050_change[!is.na(data$sst_mean_rcp45_2050)]>=(-.05)]<-"yellow"
+xy$col[data$Y_future_RCP45_yr_2050_change[!is.na(data$sst_mean_rcp45_2050)]>=(-.01)]<-"gray50"
+
+points(xy[xy$col=="red",], col="red", pch=16, cex=1.6)
+points(xy[xy$col=="darkorange",], col="darkorange", pch=16, cex=1.6)
+points(xy[xy$col=="yellow",], col="yellow", pch=16, cex=1.6)
+points(xy[xy$col=="gray50",], col="gray50", pch=16, cex=1.6)
+
+#windowsFonts(A=windowsFont('Arial Unicode MS'))
+text(-7868896,-2922012,'Indian Ocean',cex=1.5,family='Arial')
+text(9438742,487176,'Pacific Ocean',cex=1.5,family='Arial')
+text(x=(-16654136+111319.4*305), y=1615153*2.15,'Atlantic Ocean',cex=1.5, family='Arial')
+north.arrow(x=(-16654136+111319.4*320), y=1615153*1, len=(111319.4*2), lab="N", cex=.7, cex.lab=1.5)
+
+text(x = -19868896, y = 3715153, labels = "(a)", cex=2, xpd = NA)
+
+#legend
+plotrix::color.legend(7684797.171+25e5,-28*111319.4666666667,15807371.62+25e5,-23.5*111319.4666666667,legend=c("-25:-10", "-10:-5", "-5:-1", "-1:0"), rect.col=c("red", "darkorange", "yellow", "gray50"),cex=.6)
+text(((15807371.62+25e5)-(7684797.171+25e5))/2+(7684797.171+25e5),-16*111319.4666666667,"% coral cover change", cex=1.5)
+
+plot(wlrd.p,ylim=c(-4400000,4400000),xlim=c(-2000000,2000000), col='darkseagreen3',border='darkseagreen4', ylab="RCP4.5 year 2100", cex.lab=2.5)
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+box()
+
+xy <- SpatialPointsDataFrame(data=data[!is.na(data$sst_mean_rcp45_2100),],coords=data[!is.na(data$sst_mean_rcp45_2100),][c('Longitude.Degrees','Latitude.Degrees')], proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+xy <- spTransform(xy,CRS("+proj=eqc +lat_ts=0 +lat_0=0 +lon_0=150 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+xy$col<-"red"
+xy$col[data$Y_future_RCP45_yr_2100_change[!is.na(data$sst_mean_rcp45_2100)]>=(-.1)]<-"darkorange"
+xy$col[data$Y_future_RCP45_yr_2100_change[!is.na(data$sst_mean_rcp45_2100)]>=(-.05)]<-"yellow"
+xy$col[data$Y_future_RCP45_yr_2100_change[!is.na(data$sst_mean_rcp45_2100)]>=(-.01)]<-"gray50"
+
+points(xy[xy$col=="red",], col="red", pch=16, cex=1.6)
+points(xy[xy$col=="darkorange",], col="darkorange", pch=16, cex=1.6)
+points(xy[xy$col=="yellow",], col="yellow", pch=16, cex=1.6)
+points(xy[xy$col=="gray50",], col="gray50", pch=16, cex=1.6)
+
+#windowsFonts(A=windowsFont('Arial Unicode MS'))
+text(-7868896,-2922012,'Indian Ocean',cex=1.5,family='Arial')
+text(9438742,487176,'Pacific Ocean',cex=1.5,family='Arial')
+text(x=(-16654136+111319.4*305), y=1615153*2.15,'Atlantic Ocean',cex=1.5, family='Arial')
+north.arrow(x=(-16654136+111319.4*320), y=1615153*1, len=(111319.4*2), lab="N", cex=.7, cex.lab=1.5)
+
+text(x = -19868896, y = 3715153, labels = "(b)", cex=2, xpd = NA)
+
+#legend
+plotrix::color.legend(7684797.171+25e5,-28*111319.4666666667,15807371.62+25e5,-23.5*111319.4666666667,legend=c("-25:-10", "-10:-5", "-5:-1", "-1:0"), rect.col=c("red", "darkorange", "yellow", "gray50"),cex=.6)
+text(((15807371.62+25e5)-(7684797.171+25e5))/2+(7684797.171+25e5),-16*111319.4666666667,"% coral cover change", cex=1.5)
+
+plot(wlrd.p,ylim=c(-4400000,4400000),xlim=c(-2000000,2000000), col='darkseagreen3',border='darkseagreen4', ylab="RCP8.5 year 2050", cex.lab=2.5)
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+box()
+
+xy <- SpatialPointsDataFrame(data=data[!is.na(data$sst_mean_rcp85_2050),],coords=data[!is.na(data$sst_mean_rcp85_2050),][c('Longitude.Degrees','Latitude.Degrees')], proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+xy <- spTransform(xy,CRS("+proj=eqc +lat_ts=0 +lat_0=0 +lon_0=150 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+xy$col<-"red"
+xy$col[data$Y_future_RCP85_yr_2050_change[!is.na(data$sst_mean_rcp85_2050)]>=(-.1)]<-"darkorange"
+xy$col[data$Y_future_RCP85_yr_2050_change[!is.na(data$sst_mean_rcp85_2050)]>=(-.05)]<-"yellow"
+xy$col[data$Y_future_RCP85_yr_2050_change[!is.na(data$sst_mean_rcp85_2050)]>=(-.01)]<-"gray50"
+
+points(xy[xy$col=="red",], col="red", pch=16, cex=1.6)
+points(xy[xy$col=="darkorange",], col="darkorange", pch=16, cex=1.6)
+points(xy[xy$col=="yellow",], col="yellow", pch=16, cex=1.6)
+points(xy[xy$col=="gray50",], col="gray50", pch=16, cex=1.6)
+
+text(-7868896,-2922012,'Indian Ocean',cex=1.5,family='Arial')
+text(9438742,487176,'Pacific Ocean',cex=1.5,family='Arial')
+text(x=(-16654136+111319.4*305), y=1615153*2.15,'Atlantic Ocean',cex=1.5, family='Arial')
+north.arrow(x=(-16654136+111319.4*320), y=1615153*1, len=(111319.4*2), lab="N", cex=.7, cex.lab=1.5)
+
+text(x = -19868896, y = 3715153, labels = "(c)", cex=2, xpd = NA)
+
+#legend
+plotrix::color.legend(7684797.171+25e5,-28*111319.4666666667,15807371.62+25e5,-23.5*111319.4666666667,legend=c("-25:-10", "-10:-5", "-5:-1", "-1:0"), rect.col=c("red", "darkorange", "yellow", "gray50"),cex=.6)
+text(((15807371.62+25e5)-(7684797.171+25e5))/2+(7684797.171+25e5),-16*111319.4666666667,"% coral cover change", cex=1.5)
+
+plot(wlrd.p,ylim=c(-4400000,4400000),xlim=c(-2000000,2000000), col='darkseagreen3',border='darkseagreen4', ylab="RCP8.5 year 2100", cex.lab=2.5)
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+box()
+
+xy <- SpatialPointsDataFrame(data=data[!is.na(data$sst_mean_rcp85_2100),],coords=data[!is.na(data$sst_mean_rcp85_2100),][c('Longitude.Degrees','Latitude.Degrees')], proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+xy <- spTransform(xy,CRS("+proj=eqc +lat_ts=0 +lat_0=0 +lon_0=150 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+xy$col<-"red"
+xy$col[data$Y_future_RCP85_yr_2100_change[!is.na(data$sst_mean_rcp85_2100)]>=(-.1)]<-"darkorange"
+xy$col[data$Y_future_RCP85_yr_2100_change[!is.na(data$sst_mean_rcp85_2100)]>=(-.05)]<-"yellow"
+xy$col[data$Y_future_RCP85_yr_2100_change[!is.na(data$sst_mean_rcp85_2100)]>=(-.01)]<-"gray50"
+
+points(xy[xy$col=="red",], col="red", pch=16, cex=1.6)
+points(xy[xy$col=="darkorange",], col="darkorange", pch=16, cex=1.6)
+points(xy[xy$col=="yellow",], col="yellow", pch=16, cex=1.6)
+points(xy[xy$col=="gray50",], col="gray50", pch=16, cex=1.6)
+
+text(-7868896,-2922012,'Indian Ocean',cex=1.5,family='Arial')
+text(9438742,487176,'Pacific Ocean',cex=1.5,family='Arial')
+text(x=(-16654136+111319.4*305), y=1615153*2.15,'Atlantic Ocean',cex=1.5, family='Arial')
+north.arrow(x=(-16654136+111319.4*320), y=1615153*1, len=(111319.4*2), lab="N", cex=.7, cex.lab=1.5)
+
+text(x = -19868896, y = 3715153, labels = "(d)", cex=2, xpd = NA)
+
+#legend
+plotrix::color.legend(7684797.171+25e5,-28*111319.4666666667,15807371.62+25e5,-23.5*111319.4666666667,legend=c("-25:-10", "-10:-5", "-5:-1", "-1:0"), rect.col=c("red", "darkorange", "yellow", "gray50"),cex=.6)
+text(((15807371.62+25e5)-(7684797.171+25e5))/2+(7684797.171+25e5),-16*111319.4666666667,"% coral cover change", cex=1.5)
+
+dev.off()
+```
+
+coordinates<-cbind(lons=as.numeric(data$Longitude.Degrees), lats=as.numeric(data$Latitude.Degrees))
+xy <- SpatialPoints(coords=coordinates, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+```{r kml absolute future coral cover change RCP4.5 year 2050}
+xy_absolute_change_RCP45_2050_kml<-spTransform(xy, "+proj=longlat +ellps=WGS84 +datum=WGS84")
+sps<-c()
+
+for(i in 1:length(xy_absolute_change_RCP45_2050_kml)){
+  circle_poly<-circle.polygon(
+    x=xy_absolute_change_RCP45_2050_kml@coords[i,1],
+    y=xy_absolute_change_RCP45_2050_kml@coords[i,2],
+    radius = 8,
+    units = "m",
+    poly.type = "cart.earth"
+  )
+  p<-Polygons(list(Polygon(circle_poly)),i)
+  sps<-append(sps, p)
+}
+spss<-SpatialPolygons(sps, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+coral_cover_brks<-c(-1, -0.1, -0.05, -0.01, 1)
+pal<-c("red", "orange", "yellow", "gray50")
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP45_yr_2050_change), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+spss_df<-SpatialPolygonsDataFrame(spss, data=data.frame("col"=coral_cover_grps, "percent"=data$Y_future_RCP45_yr_2050_change))
+
+setwd(output_directory)
+kml_open("kml_coral_cover_change_absolute_RCP45_2050.kml")
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent<(-0.1),], colour=spss_df$col[spss_df$percent<(-0.1)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.1) & spss_df$percent<(-0.05),], colour=spss_df$col[spss_df$percent>=(-0.1) & spss_df$percent<(-0.05)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.05) & spss_df$percent<(-0.01),], colour=spss_df$col[spss_df$percent>=(-0.05) & spss_df$percent<(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-.01),], colour=spss_df$col[spss_df$percent>=(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_close("kml_coral_cover_change_absolute_RCP45_2050.kml")
+```
+
+```{r kml absolute future coral cover change RCP4.5 year 2100}
+xy_absolute_change_RCP45_2100_kml<-spTransform(xy, "+proj=longlat +ellps=WGS84 +datum=WGS84")
+sps<-c()
+
+for(i in 1:length(xy_absolute_change_RCP45_2100_kml)){
+  circle_poly<-circle.polygon(
+    x=xy_absolute_change_RCP45_2100_kml@coords[i,1],
+    y=xy_absolute_change_RCP45_2100_kml@coords[i,2],
+    radius = 8,
+    units = "m",
+    poly.type = "cart.earth"
+  )
+  p<-Polygons(list(Polygon(circle_poly)),i)
+  sps<-append(sps, p)
+}
+spss<-SpatialPolygons(sps, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+coral_cover_brks<-c(-1, -0.1, -0.05, -0.01, 1)
+pal<-c( "red", "orange", "yellow", "gray50")
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP45_yr_2100_change), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+spss_df<-SpatialPolygonsDataFrame(spss, data=data.frame("col"=coral_cover_grps, "percent"=data$Y_future_RCP45_yr_2100_change))
+
+setwd(output_directory)
+kml_open("kml_coral_cover_change_absolute_RCP45_2100.kml")
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent<(-0.1),], colour=spss_df$col[spss_df$percent<(-0.1)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.1) & spss_df$percent<(-0.05),], colour=spss_df$col[spss_df$percent>=(-0.1) & spss_df$percent<(-0.05)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.05) & spss_df$percent<(-0.01),], colour=spss_df$col[spss_df$percent>=(-0.05) & spss_df$percent<(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-.01),], colour=spss_df$col[spss_df$percent>=(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_close("kml_coral_cover_change_absolute_RCP45_2100.kml")
+```
+
+```{r kml absolute future coral cover change RCP8.5 year 2050}
+xy_absolute_change_RCP85_2050_kml<-spTransform(xy, "+proj=longlat +ellps=WGS84 +datum=WGS84")
+sps<-c()
+
+for(i in 1:length(xy_absolute_change_RCP85_2050_kml)){
+  circle_poly<-circle.polygon(
+    x=xy_absolute_change_RCP85_2050_kml@coords[i,1],
+    y=xy_absolute_change_RCP85_2050_kml@coords[i,2],
+    radius = 8,
+    units = "m",
+    poly.type = "cart.earth"
+  )
+  p<-Polygons(list(Polygon(circle_poly)),i)
+  sps<-append(sps, p)
+}
+spss<-SpatialPolygons(sps, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+coral_cover_brks<-c(-1, -0.1, -0.05, -0.01, 1)
+pal<-c("red", "orange", "yellow", "gray50")
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP85_yr_2050_change), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+spss_df<-SpatialPolygonsDataFrame(spss, data=data.frame("col"=coral_cover_grps, "percent"=data$Y_future_RCP85_yr_2050_change_absolute))
+
+setwd(output_directory)
+kml_open("kml_coral_cover_change_absolute_RCP85_2050.kml")
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent<(-0.1),], colour=spss_df$col[spss_df$percent<(-0.1)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.1) & spss_df$percent<(-0.05),], colour=spss_df$col[spss_df$percent>=(-0.1) & spss_df$percent<(-0.05)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.05) & spss_df$percent<(-0.01),], colour=spss_df$col[spss_df$percent>=(-0.05) & spss_df$percent<(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-.01),], colour=spss_df$col[spss_df$percent>=(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_close("kml_coral_cover_change_absolute_RCP85_2050.kml")
+```
+
+```{r kml absolute future coral cover change RCP8.5 year 2100}
+xy_absolute_change_RCP85_2100_kml<-spTransform(xy, "+proj=longlat +ellps=WGS84 +datum=WGS84")
+sps<-c()
+
+for(i in 1:length(xy_absolute_change_RCP85_2100_kml)){
+  circle_poly<-circle.polygon(
+    x=xy_absolute_change_RCP85_2100_kml@coords[i,1],
+    y=xy_absolute_change_RCP85_2100_kml@coords[i,2],
+    radius = 8,
+    units = "m",
+    poly.type = "cart.earth"
+  )
+  p<-Polygons(list(Polygon(circle_poly)),i)
+  sps<-append(sps, p)
+}
+spss<-SpatialPolygons(sps, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+coral_cover_brks<-c(-1, -0.1, -0.05, -0.01, 1)
+pal<-c("red", "orange", "yellow", "gray50")
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP85_yr_2100_change), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+spss_df<-SpatialPolygonsDataFrame(spss, data=data.frame("col"=coral_cover_grps, "percent"=data$Y_future_RCP85_yr_2100_change))
+
+setwd(output_directory)
+kml_open("kml_coral_cover_change_absolute_RCP85_2100.kml")
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent<(-0.1),], colour=spss_df$col[spss_df$percent<(-0.1)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.1) & spss_df$percent<(-0.05),], colour=spss_df$col[spss_df$percent>=(-0.1) & spss_df$percent<(-0.05)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.05) & spss_df$percent<(-0.01),], colour=spss_df$col[spss_df$percent>=(-0.05) & spss_df$percent<(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-.01),], colour=spss_df$col[spss_df$percent>=(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_close("kml_coral_cover_change_absolute_RCP85_2100.kml")
+```
+
+```{r kml legend, percent coral cover absolute change}
+kml_legend.bar(x=pal, width=200, height=200, pointsize = 18, legend.file="legend_coral_cover_absolute_change.png", legend.pal=pal, z.lim = range(x, na.rm=TRUE, finite=TRUE), factor.labels=c('-25:-10%', '-10:-5%','-5:-1%',  '-1:0%'), png.type = "cairo-png")
+```
+
+
+data$Y_future_RCP45_yr_2050_change_relative<-(data$Y_future_RCP45_yr_2050_change/data$Average_coral_cover)
+data$Y_future_RCP45_yr_2050_change_relative[data$Y_future_RCP45_yr_2050_change_relative<(-1)]<-(-1)
+
+data$Y_future_RCP45_yr_2100_change_relative<-(data$Y_future_RCP45_yr_2100_change/data$Average_coral_cover)
+data$Y_future_RCP45_yr_2100_change_relative[data$Y_future_RCP45_yr_2100_change_relative<(-1)]<-(-1)
+
+data$Y_future_RCP85_yr_2050_change_relative<-(data$Y_future_RCP85_yr_2050_change/data$Average_coral_cover)
+data$Y_future_RCP85_yr_2050_change_relative[data$Y_future_RCP85_yr_2050_change_relative<(-1)]<-(-1)
+
+data$Y_future_RCP85_yr_2100_change_relative<-(data$Y_future_RCP85_yr_2100_change/data$Average_coral_cover)
+data$Y_future_RCP85_yr_2100_change_relative[data$Y_future_RCP85_yr_2100_change_relative<(-1)]<-(-1)
+
+```{r Figure 5. map of relative future coral cover change}
+
+windowsFonts(Arial=windowsFont("TT Arial"))
+par(family="Arial")
+pal<-c("red4", "red3", "red", "orangered", "orange", "yellow", "gray50")
+tiff(file=file.path(output_directory,'future_coral_cover_change_relative.tif'),height=3200,width=3300,res=300)
+#png(file=file.path(output_directory,'future_coral_cover_change_relative.png'),height=3200,width=3300,res=300)
+par(mgp=c(0.5,0.6,0), mar=c(1,2.5,1,1), mfrow=c(4,1))
+plot(wlrd.p,ylim=c(-4400000,4400000),xlim=c(-2000000,2000000), col='darkseagreen3',border='darkseagreen4', ylab="RCP4.5 year 2050", cex.lab=2.5)
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+box()
+
+xy <- SpatialPointsDataFrame(data=data[!is.na(data$sst_mean_rcp45_2050),],coords=data[!is.na(data$sst_mean_rcp45_2050),][c('Longitude.Degrees','Latitude.Degrees')], proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+xy <- spTransform(xy,CRS("+proj=eqc +lat_ts=0 +lat_0=0 +lon_0=150 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+xy$col<-"red4"
+xy$col[data$Y_future_RCP45_yr_2050_change_relative[!is.na(data$sst_mean_rcp45_2050)]>=(-.5)]<-"red3"
+xy$col[data$Y_future_RCP45_yr_2050_change_relative[!is.na(data$sst_mean_rcp45_2050)]>=(-.4)]<-"red"
+xy$col[data$Y_future_RCP45_yr_2050_change_relative[!is.na(data$sst_mean_rcp45_2050)]>=(-.3)]<-"orangered"
+xy$col[data$Y_future_RCP45_yr_2050_change_relative[!is.na(data$sst_mean_rcp45_2050)]>=(-.2)]<-"orange"
+xy$col[data$Y_future_RCP45_yr_2050_change_relative[!is.na(data$sst_mean_rcp45_2050)]>=(-.1)]<-"yellow"
+xy$col[data$Y_future_RCP45_yr_2050_change_relative[!is.na(data$sst_mean_rcp45_2050)]>=(-.01)]<-"gray50"
+points(xy[xy$col=="red4",], col="red4", pch=16, cex=1.6)
+points(xy[xy$col=="red3",], col="red3", pch=16, cex=1.6)
+points(xy[xy$col=="red",], col="red", pch=16, cex=1.6)
+points(xy[xy$col=="orangered",], col="orangered", pch=16, cex=1.6)
+points(xy[xy$col=="orange",], col="orange", pch=16, cex=1.6)
+points(xy[xy$col=="yellow",], col="yellow", pch=16, cex=1.6)
+points(xy[xy$col=="gray50",], col="gray50", pch=16, cex=1.6)
+
+text(-7868896,-2922012,'Indian Ocean',cex=1.5,family='Arial')
+text(9438742,487176,'Pacific Ocean',cex=1.5,family='Arial')
+text(x=(-16654136+111319.4*305), y=1615153*2.15,'Atlantic Ocean',cex=1.5, family='Arial')
+north.arrow(x=(-16654136+111319.4*320), y=1615153*1, len=(111319.4*2), lab="N", cex=.7, cex.lab=1.5)
+
+text(x = -19868896, y = 3715153, labels = "(a)", cex=2, xpd = NA)
+
+#legend
+plotrix::color.legend(6084797.171+25e5,-28*111319.4666666667,16807371.62+25e5,-23.5*111319.4666666667,legend=c("<-50", "-50:-40", "-40:-30", "-30:-20", "-20:-10", "-10:-1", "-1:0"),rect.col=pal,cex=.6)
+text(((15807371.62+25e5)-(7684797.171+25e5))/2+(7684797.171+25e5),-16*111319.4666666667,"% coral cover change", cex=1.5)
+
+
+plot(wlrd.p,ylim=c(-4400000,4400000),xlim=c(-2000000,2000000), col='darkseagreen3',border='darkseagreen4', ylab="RCP4.5 year 2100", cex.lab=2.5)
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+box()
+
+xy <- SpatialPointsDataFrame(data=data[!is.na(data$sst_mean_rcp45_2100),],coords=data[!is.na(data$sst_mean_rcp45_2100),][c('Longitude.Degrees','Latitude.Degrees')], proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+xy <- spTransform(xy,CRS("+proj=eqc +lat_ts=0 +lat_0=0 +lon_0=150 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+xy$col<-"red4"
+xy$col[data$Y_future_RCP45_yr_2100_change_relative[!is.na(data$sst_mean_rcp45_2100)]>=(-.5)]<-"red3"
+xy$col[data$Y_future_RCP45_yr_2100_change_relative[!is.na(data$sst_mean_rcp45_2100)]>=(-.4)]<-"red"
+xy$col[data$Y_future_RCP45_yr_2100_change_relative[!is.na(data$sst_mean_rcp45_2100)]>=(-.3)]<-"orangered"
+xy$col[data$Y_future_RCP45_yr_2100_change_relative[!is.na(data$sst_mean_rcp45_2100)]>=(-.2)]<-"orange"
+xy$col[data$Y_future_RCP45_yr_2100_change_relative[!is.na(data$sst_mean_rcp45_2100)]>=(-.1)]<-"yellow"
+xy$col[data$Y_future_RCP45_yr_2100_change_relative[!is.na(data$sst_mean_rcp45_2100)]>=(-.01)]<-"gray50"
+points(xy[xy$col=="red4",], col="red4", pch=16, cex=1.6)
+points(xy[xy$col=="red3",], col="red3", pch=16, cex=1.6)
+points(xy[xy$col=="red",], col="red", pch=16, cex=1.6)
+points(xy[xy$col=="orangered",], col="orangered", pch=16, cex=1.6)
+points(xy[xy$col=="orange",], col="orange", pch=16, cex=1.6)
+points(xy[xy$col=="yellow",], col="yellow", pch=16, cex=1.6)
+points(xy[xy$col=="gray50",], col="gray50", pch=16, cex=1.6)
+
+text(-7868896,-2922012,'Indian Ocean',cex=1.5,family='Arial')
+text(9438742,487176,'Pacific Ocean',cex=1.5,family='Arial')
+text(x=(-16654136+111319.4*305), y=1615153*2.15,'Atlantic Ocean',cex=1.5, family='Arial')
+north.arrow(x=(-16654136+111319.4*320), y=1615153*1, len=(111319.4*2), lab="N", cex=.7, cex.lab=1.5)
+
+text(x = -19868896, y = 3715153, labels = "(b)", cex=2, xpd = NA)
+
+#legend
+plotrix::color.legend(6084797.171+25e5,-28*111319.4666666667,16807371.62+25e5,-23.5*111319.4666666667,legend=c("<-50", "-50:-40", "-40:-30", "-30:-20", "-20:-10", "-10:-1", "-1:0"),rect.col=pal,cex=.6)
+text(((15807371.62+25e5)-(7684797.171+25e5))/2+(7684797.171+25e5),-16*111319.4666666667,"% coral cover change", cex=1.5)
+
+
+plot(wlrd.p,ylim=c(-4400000,4400000),xlim=c(-2000000,2000000), col='darkseagreen3',border='darkseagreen4', ylab="RCP8.5 year 2050", cex.lab=2.5)
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+box()
+
+xy <- SpatialPointsDataFrame(data=data[!is.na(data$sst_mean_rcp85_2050),],coords=data[!is.na(data$sst_mean_rcp85_2050),][c('Longitude.Degrees','Latitude.Degrees')], proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+xy <- spTransform(xy,CRS("+proj=eqc +lat_ts=0 +lat_0=0 +lon_0=150 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+xy$col<-"red4"
+xy$col[data$Y_future_RCP85_yr_2050_change_relative[!is.na(data$sst_mean_rcp85_2050)]>=(-.5)]<-"red3"
+xy$col[data$Y_future_RCP85_yr_2050_change_relative[!is.na(data$sst_mean_rcp85_2050)]>=(-.4)]<-"red"
+xy$col[data$Y_future_RCP85_yr_2050_change_relative[!is.na(data$sst_mean_rcp85_2050)]>=(-.3)]<-"orangered"
+xy$col[data$Y_future_RCP85_yr_2050_change_relative[!is.na(data$sst_mean_rcp85_2050)]>=(-.2)]<-"orange"
+xy$col[data$Y_future_RCP85_yr_2050_change_relative[!is.na(data$sst_mean_rcp85_2050)]>=(-.1)]<-"yellow"
+xy$col[data$Y_future_RCP85_yr_2050_change_relative[!is.na(data$sst_mean_rcp85_2050)]>=(-.01)]<-"gray50"
+points(xy[xy$col=="red4",], col="red4", pch=16, cex=1.6)
+points(xy[xy$col=="red3",], col="red3", pch=16, cex=1.6)
+points(xy[xy$col=="red",], col="red", pch=16, cex=1.6)
+points(xy[xy$col=="orangered",], col="orangered", pch=16, cex=1.6)
+points(xy[xy$col=="orange",], col="orange", pch=16, cex=1.6)
+points(xy[xy$col=="yellow",], col="yellow", pch=16, cex=1.6)
+points(xy[xy$col=="gray50",], col="gray50", pch=16, cex=1.6)
+
+text(x = -19868896, y = 3715153, labels = "(c)", cex=2, xpd = NA)
+
+text(-7868896,-2922012,'Indian Ocean',cex=1.5,family='Arial')
+text(9438742,487176,'Pacific Ocean',cex=1.5,family='Arial')
+text(x=(-16654136+111319.4*305), y=1615153*2.15,'Atlantic Ocean',cex=1.5, family='Arial')
+north.arrow(x=(-16654136+111319.4*320), y=1615153*1, len=(111319.4*2), lab="N", cex=.7, cex.lab=1.5)
+
+#legend
+plotrix::color.legend(6084797.171+25e5,-28*111319.4666666667,16807371.62+25e5,-23.5*111319.4666666667,legend=c("<-50", "-50:-40", "-40:-30", "-30:-20", "-20:-10", "-10:-1", "-1:0"),rect.col=pal,cex=.6)
+text(((15807371.62+25e5)-(7684797.171+25e5))/2+(7684797.171+25e5),-16*111319.4666666667,"% coral cover change", cex=1.5)
+
+
+plot(wlrd.p,ylim=c(-4400000,4400000),xlim=c(-2000000,2000000), col='darkseagreen3',border='darkseagreen4', ylab="RCP8.5 year 2100", cex.lab=2.5)
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+box()
+
+xy <- SpatialPointsDataFrame(data=data[!is.na(data$sst_mean_rcp85_2100),],coords=data[!is.na(data$sst_mean_rcp85_2100),][c('Longitude.Degrees','Latitude.Degrees')], proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs"))
+xy <- spTransform(xy,CRS("+proj=eqc +lat_ts=0 +lat_0=0 +lon_0=150 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"))
+xy$col<-"red4"
+xy$col[data$Y_future_RCP85_yr_2100_change_relative[!is.na(data$sst_mean_rcp85_2100)]>=(-.5)]<-"red3"
+xy$col[data$Y_future_RCP85_yr_2100_change_relative[!is.na(data$sst_mean_rcp85_2100)]>=(-.4)]<-"red"
+xy$col[data$Y_future_RCP85_yr_2100_change_relative[!is.na(data$sst_mean_rcp85_2100)]>=(-.3)]<-"orangered"
+xy$col[data$Y_future_RCP85_yr_2100_change_relative[!is.na(data$sst_mean_rcp85_2100)]>=(-.2)]<-"orange"
+xy$col[data$Y_future_RCP85_yr_2100_change_relative[!is.na(data$sst_mean_rcp85_2100)]>=(-.1)]<-"yellow"
+xy$col[data$Y_future_RCP85_yr_2100_change_relative[!is.na(data$sst_mean_rcp85_2100)]>=(-.01)]<-"gray50"
+points(xy[xy$col=="red4",], col="red4", pch=16, cex=1.6)
+points(xy[xy$col=="red3",], col="red3", pch=16, cex=1.6)
+points(xy[xy$col=="red",], col="red", pch=16, cex=1.6)
+points(xy[xy$col=="orangered",], col="orangered", pch=16, cex=1.6)
+points(xy[xy$col=="orange",], col="orange", pch=16, cex=1.6)
+points(xy[xy$col=="yellow",], col="yellow", pch=16, cex=1.6)
+points(xy[xy$col=="gray50",], col="gray50", pch=16, cex=1.6)
+
+text(-7868896,-2922012,'Indian Ocean',cex=1.5,family='Arial')
+text(9438742,487176,'Pacific Ocean',cex=1.5,family='Arial')
+text(x=(-16654136+111319.4*305), y=1615153*2.15,'Atlantic Ocean',cex=1.5, family='Arial')
+north.arrow(x=(-16654136+111319.4*320), y=1615153*1, len=(111319.4*2), lab="N", cex=.7, cex.lab=1.5)
+
+text(x = -19868896, y = 3715153, labels = "(d)", cex=2, xpd = NA)
+
+#legend
+plotrix::color.legend(6084797.171+25e5,-28*111319.4666666667,16807371.62+25e5,-23.5*111319.4666666667,legend=c("<-50", "-50:-40", "-40:-30", "-30:-20", "-20:-10", "-10:-1", "-1:0"),rect.col=pal,cex=.6)
+text(((15807371.62+25e5)-(7684797.171+25e5))/2+(7684797.171+25e5),-16*111319.4666666667,"% coral cover change", cex=1.5)
+
+dev.off()
+```
+
+coordinates<-cbind(lons=as.numeric(data$Longitude.Degrees), lats=as.numeric(data$Latitude.Degrees))
+xy <- SpatialPoints(coords=coordinates, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+```{r kml relative future coral cover change RCP4.5 year 2050}
+xy_relative_change_RCP45_2050_kml<-spTransform(xy, "+proj=longlat +ellps=WGS84 +datum=WGS84")
+sps<-c()
+
+for(i in 1:length(xy_relative_change_RCP45_2050_kml)){
+  circle_poly<-circle.polygon(
+    x=xy_relative_change_RCP45_2050_kml@coords[i,1],
+    y=xy_relative_change_RCP45_2050_kml@coords[i,2],
+    radius = 8, 
+    units = "m",
+    poly.type = "cart.earth"
+  )
+  p<-Polygons(list(Polygon(circle_poly)),i)
+  sps<-append(sps, p)
+}
+spss<-SpatialPolygons(sps, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+coral_cover_brks<-c(-1, -0.5, -0.4, -0.3, -0.2, -0.1, -0.01, 1)
+pal<-c("red4", "red3", "red", "orangered", "orange", "yellow", "gray50")
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP45_yr_2050_change_relative), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+spss_df<-SpatialPolygonsDataFrame(spss, data=data.frame("col"=coral_cover_grps, "percent"=data$Y_future_RCP45_yr_2050_change_relative))
+
+setwd(output_directory)
+kml_open("kml_coral_cover_change_relative_RCP45_2050.kml")
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent<(-0.5),], colour=spss_df$col[spss_df$percent<(-0.5)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.5) & spss_df$percent<(-0.4),], colour=spss_df$col[spss_df$percent>=(-0.5) & spss_df$percent<(-0.4)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.4) & spss_df$percent<(-0.3),], colour=spss_df$col[spss_df$percent>=(-0.4) & spss_df$percent<(-0.3)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.3) & spss_df$percent<(-0.2),], colour=spss_df$col[spss_df$percent>=(-0.3) & spss_df$percent<(-0.2)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.2) & spss_df$percent<(-0.1),], colour=spss_df$col[spss_df$percent>=(-0.2) & spss_df$percent<(-0.1)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.1) & spss_df$percent<(-0.01),], colour=spss_df$col[spss_df$percent>=(-0.1) & spss_df$percent<(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-.01),], colour=spss_df$col[spss_df$percent>=(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_close("kml_coral_cover_change_relative_RCP45_2050.kml")
+```
+
+```{r kml relative future coral cover change RCP4.5 year 2100}
+xy_relative_change_RCP45_2100_kml<-spTransform(xy, "+proj=longlat +ellps=WGS84 +datum=WGS84")
+sps<-c()
+
+for(i in 1:length(xy_relative_change_RCP45_2100_kml)){
+  circle_poly<-circle.polygon(
+    x=xy_relative_change_RCP45_2100_kml@coords[i,1],
+    y=xy_relative_change_RCP45_2100_kml@coords[i,2],
+    radius = 8, 
+    units = "m",
+    poly.type = "cart.earth"
+  )
+  p<-Polygons(list(Polygon(circle_poly)),i)
+  sps<-append(sps, p)
+}
+spss<-SpatialPolygons(sps, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+coral_cover_brks<-c(-1, -0.5, -0.4, -0.3, -0.2, -0.1, -0.01, 1)
+pal<-c("red4", "red3", "red", "orangered", "orange", "yellow", "gray50")
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP45_yr_2100_change_relative), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+spss_df<-SpatialPolygonsDataFrame(spss, data=data.frame("col"=coral_cover_grps, "percent"=data$Y_future_RCP45_yr_2100_change_relative))
+
+setwd(output_directory)
+kml_open("kml_coral_cover_change_relative_RCP45_2100.kml")
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent<(-0.5),], colour=spss_df$col[spss_df$percent<(-0.5)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.5) & spss_df$percent<(-0.4),], colour=spss_df$col[spss_df$percent>=(-0.5) & spss_df$percent<(-0.4)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.4) & spss_df$percent<(-0.3),], colour=spss_df$col[spss_df$percent>=(-0.4) & spss_df$percent<(-0.3)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.3) & spss_df$percent<(-0.2),], colour=spss_df$col[spss_df$percent>=(-0.3) & spss_df$percent<(-0.2)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.2) & spss_df$percent<(-0.1),], colour=spss_df$col[spss_df$percent>=(-0.2) & spss_df$percent<(-0.1)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.1) & spss_df$percent<(-0.01),], colour=spss_df$col[spss_df$percent>=(-0.1) & spss_df$percent<(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-.01),], colour=spss_df$col[spss_df$percent>=(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_close("kml_coral_cover_change_relative_RCP45_2100.kml")
+```
+
+```{r kml relative future coral cover change RCP8.5 year 2050}
+xy_relative_change_RCP85_2050_kml<-spTransform(xy, "+proj=longlat +ellps=WGS84 +datum=WGS84")
+sps<-c()
+
+for(i in 1:length(xy_relative_change_RCP85_2050_kml)){
+  circle_poly<-circle.polygon(
+    x=xy_relative_change_RCP85_2050_kml@coords[i,1],
+    y=xy_relative_change_RCP85_2050_kml@coords[i,2],
+    radius = 8,
+    units = "m",
+    poly.type = "cart.earth"
+  )
+  p<-Polygons(list(Polygon(circle_poly)),i)
+  sps<-append(sps, p)
+}
+spss<-SpatialPolygons(sps, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+coral_cover_brks<-c(-1, -0.5, -0.4, -0.3, -0.2, -0.1, -0.01, 1)
+pal<-c("red4", "red3", "red", "orangered", "orange", "yellow", "gray50")
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP85_yr_2050_change_relative), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+spss_df<-SpatialPolygonsDataFrame(spss, data=data.frame("col"=coral_cover_grps, "percent"=data$Y_future_RCP85_yr_2050_change_relative))
+
+setwd(output_directory)
+kml_open("kml_coral_cover_change_relative_RCP85_2050.kml")
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent<(-0.5),], colour=spss_df$col[spss_df$percent<(-0.5)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.5) & spss_df$percent<(-0.4),], colour=spss_df$col[spss_df$percent>=(-0.5) & spss_df$percent<(-0.4)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.4) & spss_df$percent<(-0.3),], colour=spss_df$col[spss_df$percent>=(-0.4) & spss_df$percent<(-0.3)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.3) & spss_df$percent<(-0.2),], colour=spss_df$col[spss_df$percent>=(-0.3) & spss_df$percent<(-0.2)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.2) & spss_df$percent<(-0.1),], colour=spss_df$col[spss_df$percent>=(-0.2) & spss_df$percent<(-0.1)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.1) & spss_df$percent<(-0.01),], colour=spss_df$col[spss_df$percent>=(-0.1) & spss_df$percent<(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-.01),], colour=spss_df$col[spss_df$percent>=(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_close("kml_coral_cover_change_relative_RCP85_2050.kml")
+```
+
+```{r kml relative future coral cover change RCP8.5 year 2100}
+xy_relative_change_RCP85_2100_kml<-spTransform(xy, "+proj=longlat +ellps=WGS84 +datum=WGS84")
+sps<-c()
+
+for(i in 1:length(xy_relative_change_RCP85_2100_kml)){
+  circle_poly<-circle.polygon(
+    x=xy_relative_change_RCP85_2100_kml@coords[i,1],
+    y=xy_relative_change_RCP85_2100_kml@coords[i,2],
+    radius = 8,
+    units = "m",
+    poly.type = "cart.earth"
+  )
+  p<-Polygons(list(Polygon(circle_poly)),i)
+  sps<-append(sps, p)
+}
+spss<-SpatialPolygons(sps, proj4string=CRS("+proj=longlat +ellps=WGS84 +datum=WGS84"))
+
+coral_cover_brks<-c(-1, -0.5, -0.4, -0.3, -0.2, -0.1, -0.01, 1)
+pal<-c("red4", "red3", "red", "orangered", "orange", "yellow", "gray50")
+coral_cover_grps<-cut(as.matrix(data$Y_future_RCP85_yr_2100_change_relative), coral_cover_brks, include.lowest=TRUE,dig.lab=2)
+spss_df<-SpatialPolygonsDataFrame(spss, data=data.frame("col"=coral_cover_grps, "percent"=data$Y_future_RCP85_yr_2100_change_relative))
+
+setwd(output_directory)
+kml_open("kml_coral_cover_change_relative_RCP85_2100.kml")
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent<(-0.5),], colour=spss_df$col[spss_df$percent<(-0.5)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.5) & spss_df$percent<(-0.4),], colour=spss_df$col[spss_df$percent>=(-0.5) & spss_df$percent<(-0.4)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.4) & spss_df$percent<(-0.3),], colour=spss_df$col[spss_df$percent>=(-0.4) & spss_df$percent<(-0.3)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.3) & spss_df$percent<(-0.2),], colour=spss_df$col[spss_df$percent>=(-0.3) & spss_df$percent<(-0.2)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.2) & spss_df$percent<(-0.1),], colour=spss_df$col[spss_df$percent>=(-0.2) & spss_df$percent<(-0.1)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-0.1) & spss_df$percent<(-0.01),], colour=spss_df$col[spss_df$percent>=(-0.1) & spss_df$percent<(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_layer.SpatialPolygons(obj=spss_df[spss_df$percent>=(-.01),], colour=spss_df$col[spss_df$percent>=(-0.01)], colour_scale=as.character(pal), outline=FALSE, alpha=0.8)
+
+kml_close("kml_coral_cover_change_relative_RCP85_2100.kml")
+```
+
+
+```{r kml legend, percent coral cover relative change}
+kml_legend.bar(x=pal, width=200, height=200, pointsize = 18, legend.file="legend_coral_cover_relative_change.png", legend.pal=pal, z.lim = range(x, na.rm=TRUE, finite=TRUE), factor.labels=c('-100:-50%', '-50:-40%','-40:-30%', '-30:-20%', '-20:-10%', '-10:-1%',  '-1:0%'), png.type = "cairo-png")
+```
+
+```{r Supplementary Figures 20-23. Histograms of relative future coral cover change frequency}
+#switch to relative change?
+tiff(file=file.path(output_directory,'histogram_future_coral_cover_change_relative.tif'),height=2400,width=3200,res=300)
+#png(file=file.path(output_directory,'histogram_future_coral_cover_change_relative.png'),height=2400,width=3200,res=300)
+par(mfrow=c(2,2))
+hist(data$Y_future_RCP45_yr_2050_change_relative[!is.na(data$sst_mean_rcp45_2050)]*100, prob=T, xlab="Change in coral cover (%)", ylab="Probability density", main="RCP4.5, Year 2050", xlim=c(-100, 5), cex.lab=1.5, cex.main=2.1)
+hist(data$Y_future_RCP45_yr_2100_change_relative[!is.na(data$sst_mean_rcp45_2100)]*100, prob=T, xlab="Change in coral cover (%)", ylab="Probability density", main="RCP4.5, Year 2100", xlim=c(-100, 5), cex.lab=1.5, cex.main=2.1)
+hist(data$Y_future_RCP85_yr_2050_change_relative[!is.na(data$sst_mean_rcp85_2050)]*100, prob=T, xlab="Change in coral cover (%)", ylab="Probability density", main="RCP8.5, Year 2050", xlim=c(-100, 5), cex.lab=1.5, cex.main=2.1)
+hist(data$Y_future_RCP85_yr_2100_change_relative[!is.na(data$sst_mean_rcp85_2100)]*100, prob=T, xlab="Change in coral cover (%)", ylab="Probability density", main="RCP8.5, Year 2100", xlim=c(-100, 5), cex.lab=1.5, cex.main=2.1)
+dev.off()
+```
+
+```{r examine coral loss by grouping reefs or ecoregions together}
+reef_ids<-unique(data$Reef_ID)
+loss<-c()
+eco<-c()
+country<-c()
+for(i in 1:length(reef_ids)){
+  loss<-c(loss, mean(data[data$Reef_ID==reef_ids[i],]$Y_future_RCP85_yr_2100_change_relative))
+  eco<-c(eco, as.character(unique(data[data$Reef_ID==reef_ids[i],]$Ecoregion.x)))
+  country<-c(country, as.character(unique(data[data$Reef_ID==reef_ids[i],]$Country_Name)))
+}
+
+eco_ids<-as.character(unique(data$Ecoregion.x))
+eco_loss<-c()
+for(i in 1:length(eco_ids)){
+  eco_loss<-c(eco_loss,mean(loss[eco==eco_ids[i]]))
+}
+
+country_ids<-as.character(unique(data$Country_Name))
+country_loss<-c()
+for(i in 1:length(country_ids)){
+  country_loss<-c(country_loss,mean(loss[country==country_ids[i]]))
+}
+
+sort(loss)[.4*2949] #40% of sites are projected to lose at least 50% of their coral cover by 2100 under RCP8.5
+sort(eco_loss)[.5*83] #50% of ecoregions are projected to lose at least 50% of their coral cover by 2100 under RCP8.5
+sort(country_loss)[.49*76] #49% of countries are projected to lose at least 50% of their coral cover by 2100 under RCP8.5
+```
+
+```{r Supplementary Figures 1-14. Boxplots}
+
+boxplot_data<-data[data$Turbidity_mean<0.5,]
+
+setwd(output_directory)
+boxplot_function<-function(x_data, x_label, title_var, bin_breaks, digits){
+  boxplot_data$group=cut(x_data, breaks=bin_breaks, include.lowest=FALSE, right=TRUE, dig.lab=digits, ordered_result=TRUE)
+  #tiff(filename=paste("Coral_cover_vs_", x_label, "_boxplot.tif"), res=300,width=2000,height=2000)
+  png(filename=paste("Coral_cover_vs_", title_var, "_boxplot.png", sep=""), res=300,width=2000,height=2000)
+  par(mar=c(9,4,1,1))
+  boxplot((boxplot_data$Average_coral_cover)*100~boxplot_data$group, data=boxplot_data, las=2, xlab="", ylim=c(0,100), ylab="Average coral cover (%)")
+  mtext(side=1, text=x_label, line=7.3)
+  dev.off()
+}
+
+boxplot_function(x_data=boxplot_data$Latitude.Degrees, x_label=expression("Latitude ("*degree*N*" or "*degree*S*")"), title_var="Latitude", bin_breaks=seq(from=-30, to=35, by=5), digits=2)
+
+boxplot_function(x_data=boxplot_data$Longitude.Degrees, x_label=expression("Longitude ("*degree*E*" or "*degree*W*")"), title_var="Longitude", bin_breaks=seq(from=-180, to=180, by=20), digits=3)
+
+boxplot_function(x_data=boxplot_data$Depth, x_label="Depth (m)", title_var="Depth", bin_breaks=seq(from=0, to=22, by=2), digits=2)
+
+boxplot_function(x_data=boxplot_data$Cyclone, x_label="Cyclone frequency (per year)", title_var="cyclone_freq", bin_breaks=seq(from=0, to=.5, by=.025), digits=4)
+
+boxplot_function(x_data=(boxplot_data$SST_mean-273.15), x_label=expression("SST mean ("*degree*C*")"), title_var="SST_mean", bin_breaks=seq(from=21, to=31, by=1), digits=2)
+
+boxplot_function(x_data=(boxplot_data$SST_min-273.15), x_label=expression("SST minimum ("*degree*C*")"), title_var="SST_min", bin_breaks=seq(from=14, to=30, by=1), digits=2)
+
+boxplot_function(x_data=(boxplot_data$SST_max-273.15), x_label=expression("SST maximum ("*degree*C*")"), title_var="SST_max", bin_breaks=seq(from=24, to=37, by=1), digits=2)
+
+boxplot_function(x_data=boxplot_data$SST_stdev, x_label=expression("SST standard deviation ("*degree*C*")"), title_var="SST_stdev", bin_breaks=seq(from=.25, to=6, by=.25), digits=3)
+
+boxplot_function(x_data=boxplot_data$SSTA_Mean, x_label=expression("SSTA mean ("*degree*C*")"), title_var="SSTA_mean", bin_breaks=seq(from=-1.2, to=1.2, by=.1), digits=2)
+
+boxplot_function(x_data=boxplot_data$SSTA_min, x_label=expression("SSTA minimum ("*degree*C*")"), title_var="SSTA_min", bin_breaks=seq(from=-7, to=0, by=.5), digits=2)
+
+boxplot_function(x_data=boxplot_data$SSTA_max, x_label=expression("SSTA maximum ("*degree*C*")"), title_var="SSTA_max", bin_breaks=seq(from=.5, to=7, by=.5), digits=3)
+
+boxplot_function(x_data=boxplot_data$SSTA_stdev, x_label=expression("SSTA standard deviation ("*degree*C*")"), title_var="SSTA_stdev", bin_breaks=seq(from=.3, to=2.6, by=.1), digits=2)
+
+boxplot_function(x_data=boxplot_data$SSTA_freqmax, x_label=expression("SSTA frequency maximum"), title_var="SSTA_freqmax", bin_breaks=seq(from=0, to=50, by=2), digits=2)
+
+boxplot_function(x_data=boxplot_data$SSTA_freqstdev, x_label=expression("SSTA frequency standard deviation ("*degree*C*")"), title_var="SSTA_freqstdev", bin_breaks=seq(from=0, to=17, by=.5), digits=2)
+
+boxplot_function(x_data=boxplot_data$SSTA_freqmean, x_label=expression("SSTA frequency mean ("*degree*C*")"), title_var="SSTA_freqmean", bin_breaks=seq(from=0, to=36, by=1), digits=2)
+
+boxplot_function(x_data=boxplot_data$SSTA_dhwmax, x_label=expression("SSTA degree heating weeks maximum"), title_var="SSTA_dhwmax", bin_breaks=seq(from=0, to=75, by=5), digits=2)
+
+boxplot_function(x_data=boxplot_data$SSTA_dhwmean, x_label=expression("SSTA degree heating weeks mean"), title_var="SSTA_dhwmean", bin_breaks=seq(from=0, to=15.5, by=.5), digits=3)
+
+boxplot_function(x_data=boxplot_data$SSTA_dhwstdev, x_label=expression("SSTA degree heating weeks standard deviation"), title_var="SSTA_dhwstdev", bin_breaks=seq(from=0, to=20, by=.5), digits=3)
+
+boxplot_function(x_data=boxplot_data$TSA_min, x_label=expression("TSA minimum ("*degree*C*")"), title_var="TSA_min", bin_breaks=seq(from=-18, to=-1, by=1), digits=2)
+
+boxplot_function(x_data=boxplot_data$TSA_max, x_label=expression("TSA maximum ("*degree*C*")"), title_var="TSA_max", bin_breaks=seq(from=-0.5, to=6.5, by=.5), digits=3)
+
+boxplot_function(x_data=boxplot_data$TSA_stdev, x_label=expression("TSA standard deviation ("*degree*C*")"), title_var="TSA_stdev", bin_breaks=seq(from=.5, to=6, by=.25), digits=3)
+
+boxplot_function(x_data=boxplot_data$TSA_mean, x_label=expression("TSA mean ("*degree*C*")"), title_var="TSA_mean", bin_breaks=seq(from=-8, to=1, by=.25), digits=3)
+
+boxplot_function(x_data=boxplot_data$TSA_freqmax, x_label=expression("TSA frequency maximum ("*degree*C*")"), title_var="TSA_freqmax", bin_breaks=seq(from=0, to=35, by=3), digits=2)
+
+boxplot_function(x_data=boxplot_data$TSA_freqstdev, x_label=expression("TSA frequency standard deviation ("*degree*C*")"), title_var="TSA_freqstdev", bin_breaks=seq(from=0, to=13, by=.5), digits=2)
+
+boxplot_function(x_data=boxplot_data$TSA_freqmean, x_label=expression("TSA frequency mean"), title_var="TSA_freqmean ("*degree*C*")", bin_breaks=seq(from=0, to=25, by=1), digits=2)
+
+boxplot_function(x_data=boxplot_data$TSA_dhwmax, x_label=expression("TSA degree heating weeks maximum"), title_var="TSA_dhwmax", bin_breaks=seq(from=0, to=54, by=2), digits=2)
+
+boxplot_function(x_data=boxplot_data$TSA_dhwmean, x_label=expression("TSA degree heating weeks mean"), title_var="TSA_dhwmean", bin_breaks=seq(from=0, to=15, by=1), digits=2)
+
+boxplot_function(x_data=boxplot_data$TSA_dhwstdev, x_label=expression("TSA degree heating weeks standard deviation"), title_var="TSA_dhwstdev", bin_breaks=seq(from=0, to=16, by=1), digits=2)
+
+boxplot_function(x_data=boxplot_data$Turbidity_mean, x_label=expression("Turbidity (K"[d]*"490) mean"), title_var="Turbidity_mean", bin_breaks=seq(from=0, to=0.35, by=.05), digits=3)
+
+boxplot_function(x_data=boxplot_data$Turbidity_max, x_label=expression("Turbidity (K"[d]*"490) maximum"), title_var="Turbidity_max", bin_breaks=seq(from=0, to=1, by=.05), digits=3)
+
+boxplot_function(x_data=boxplot_data$Turbidity_min, x_label=expression("Turbidity (K"[d]*"490) minimum"), title_var="Turbidity_min", bin_breaks=seq(from=0, to=.3, by=.05), digits=3)
+
+boxplot_function(x_data=(boxplot_data$Historical_SST_mean-273.15), x_label=expression("Historical SST mean ("*degree*C*")"), title_var="historical_sst_mean", bin_breaks=seq(from=21, to=32, by=.5), digits=1)
+
+boxplot_function(x_data=(boxplot_data$Historical_SST_max-273.15), x_label=expression("Historical SST maximum ("*degree*C*")"), title_var="historical_sst_max", bin_breaks=seq(from=26, to=33, by=.5), digits=3)
+
+
+group=cut(boxplot_data$Human_pop, breaks=seq(from=0, to=1500000, by=100000), include.lowest=FALSE, right=TRUE, dig.lab=7, ordered_result=TRUE)
+png(file = file.path(output_directory, "Coral_cover_vs_modern_human_pop_boxplot.png"), res=300,width=2000,height=2000)
+par(mar=c(10,4,1,1))
+boxplot((boxplot_data$Average_coral_cover)*100~group, data=boxplot_data, las=2, xlab="", ylim=c(0,100), ylab="Average coral cover (%)")
+mtext(side=1, text="Human population", line=7.3)
+dev.off()
+
+
+```
+
+
+```{r Supplementary Figure 15. Coral Diversity per ecoregion}
+
+setwd(home)
+coral_diversity<-read.csv("coral_diversity.csv", header=TRUE, sep=",")
+names(coral_diversity)[1]<-"Ecoregion"
+
+setwd(output_directory)
+D<-cbind(ERG=as.character(coral_diversity$Ecoregion), val=coral_diversity$SpeciesAccepted)
+D<-as.data.frame(D)
+D$val<-as.numeric(as.character(D$val))
+nsteps <- 9;
+step<-max(abs(max(na.omit(D$val))),abs(min(na.omit(D$val))))/nsteps
+brks<-(0:(nsteps))*step
+cols <- c(brewer.pal(9, "Reds"))
+grps<-(cut(D$val, brks, include.lowest=TRUE))
+D$grp<-(cut(D$val, brks, include.lowest=TRUE))
+ECO$grp<-NA
+for(e in 1:length(ECO$grp)){
+  if (ECO$ERG[e] %in%  D$ERG){
+    ECO$grp[e]<-D$grp[(match(ECO$ERG, D$ERG))][e]
+  }
+}
+
+tiff(paste("Coral_Diversity.tif", sep=""),res=300,width=2600,height=1000)
+par(mai=c(.4,0.2,0.2,0.2))
+library(maps)
+plot.map("world", center=0 , ylim=c(-5500000,5500000), fill=T, col="grey90",border='grey70',mar=c(4,4,1,18))
+plot(ECO, ylim=c(-5500000,5500000), col=cols[unclass(ECO$grp)],add=T,lwd=.5)
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60°'),las=1,cex.axis=.7,tcl=0.2,mgp=c(-1,-1.1,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,cex.axis=.7,tcl=0.2,mgp=c(-1,-1,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.2,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.2,mgp=c(-1,-0.6,0),hadj=0)
+box()
+windowsFonts(A=windowsFont('Arial Unicode MS'))
+text(-7868896,-2922012,'Indian Ocean',cex=.64,family='A')
+text(9438742,487176,'Pacific Ocean',cex=.64,family='A')
+plotrix::color.legend(9684797.171+25e5,-28*111319.4666666667,15807371.62+25e5,-23.5*111319.4666666667,legend=c(round(min(brks), digits=1),round(max(brks), digits=1)),rect.col=cols,cex=.7)
+north.arrow(x=(-16654136+111319.4*320), y=1615153*2, len=(111319.4*2), lab="N", cex=.6)
+dev.off()
+
+
+```
+
+```{r Supplementary Figure 16. Mean turbidity}
+
+home<-"C:/Users/Shannon/Desktop/Ecoregions/turbidity/Final"
+setwd(home)
+mean_turbidity_raster<-raster("turbidity_raster_mean.nc")
+
+mean_turbidity_raster<-projectRaster(mean_turbidity_raster, crs="+proj=merc +lon_0=150 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0")
+mean_turbidity_raster[mean_turbidity_raster>0.2]<-.2
+
+colramp<-colorRampPalette(c('blue','turquoise2','green','yellow','orange','brown'))(50)
+
+tiff(file=file.path(output_directory,'mean_turbidity_plot.tif'),height=800,width=2950,res=300)
+par(mgp=c(0.5,0.6,0), mar=c(0,0,0,0))
+plot(mean_turbidity_raster, xlim=c(111319.4*-180,111319.4*180), ylim=c(111319.4*-48, 111319.4*57), legend=FALSE, col=colramp)
+box()
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+windowsFonts(A=windowsFont('Arial Unicode MS'))
+text(-7868896,-2922012,'Indian Ocean',cex=1.0, family='A')
+text(9438742,487176,'Pacific Ocean',cex=1.0, family='A')
+text(x=(-16654136+111319.4*305), y=1615153*2.2,'Atlantic Ocean',cex=1.0, family='A')
+north.arrow(x=(-16654136+111319.4*220), y=1615153*3, len=(111319.4*2), lab="N", cex=.7)
+scalebar(d=111319.4*36, xy=c((-16654136+111319.4*-27), (1615153*-2.9)), type='bar', divs=4, below="kilometers", label=c("0", "", "4000"))
+#legend
+mapcol  <- colorRampPalette(c(colramp))
+plotrix::color.legend(6184797,-28*111319.4666666667,14184797,-23.5*111319.4666666667,legend=c("0",">0.2"),rect.col=mapcol(50),cex=1)
+text(((14184797)-(6184797))/2+(6184797),-17*111319.4666666667,expression("K"[d]*"490"))
+plot.map("world", center=0 ,bg="#00000000",ylim=c(-90,90),fill=FALSE,add=T,xlab='longitude',ylab='latitude') #center is still 0
+dev.off()
+```
+
+
+```{r Supplementary Figure 17. Cyclone Frequency TIFF}
+setwd(cyclone_directory)
+cyclone_raster <- raster("cyclone frequency yr-1.nc")
+
+newproj<-"+proj=merc +lon_0=150 +k=1 +x_0=0 +y_0=0 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"
+cyclone_raster2<-projectRaster(cyclone_raster, crs=newproj)
+
+
+colramp<-colorRampPalette(c('white', 'lightpink', 'yellow', 'green'))(50)
+
+tiff(file=file.path(coral_cover_directory,'cyclone_frequency.tif'),height=800,width=3000,res=300)
+par(mgp=c(0.5,0.6,0), mar=c(0,0,0,0))
+plot(cyclone_raster2, xlim=c(111319.4*-180,111319.4*180), ylim=c(111319.4*-48, 111319.4*57), legend=FALSE, col=colramp)
+box()
+axis(1,at=c(-10018754.17,3339584.724,16697920),lab=c('60°','180°','-60° '),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(2, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('23°','0°','-23°'),las=3,tcl=0.35,mgp=c(-2,-1.3,0),hadj=.4)
+axis(3,at=c(-10018754.17,3339584.724,16697920),lab=c('','',''),las=1,tcl=0.35,mgp=c(-1,-1.3,0))
+axis(4, at=c(23*111319.4666666667,0,-23*111319.4666666667),labels=c('','',''),las=2,tcl=0.35,mgp=c(-1,-0.6,0),hadj=0)
+windowsFonts(A=windowsFont('Arial Unicode MS'))
+text(-7868896,-2922012,'Indian Ocean',cex=1.0, family='A')
+text(9438742,487176,'Pacific Ocean',cex=1.0, family='A')
+text(x=(-16654136+111319.4*305), y=1615153*2.2,'Atlantic Ocean',cex=1.0, family='A')
+north.arrow(x=(-16654136+111319.4*220), y=1615153*2.6, len=(111319.4*2), lab="N", cex=.7)
+scalebar(d=111319.4*36, xy=c((-16654136+111319.4*-27), (1615153*-2.9)), type='bar', divs=4, below="kilometers", label=c("0", "", "4000"))
+mapcol  <- colorRampPalette(c(colramp))
+plotrix::color.legend(6184797,-28*111319.4666666667,14184797,-23.5*111319.4666666667,legend=c("0","0.5", "1", "1.5"),rect.col=mapcol(50),cex=1)
+text(((14184797)-(6184797))/2+(6184797),-32*111319.4666666667,expression("Annual cyclone frequency"))
+plot.map("world", center=0 ,bg="#00000000",ylim=c(-90,90),fill=FALSE,add=T,xlab='longitude',ylab='latitude') #center is still 0
+dev.off()
+```

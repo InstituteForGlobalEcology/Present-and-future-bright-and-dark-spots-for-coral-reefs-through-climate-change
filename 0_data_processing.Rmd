@@ -1,0 +1,1437 @@
+---
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r load libraries}
+library(raster)
+library(ncdf4)
+library(stringr)
+library(rgdal)
+library(corrplot)
+library(viridis)
+library(dplyr)
+```
+
+#define paths where you have saved the coral data
+coral_cover_directory="C:/Users/Shannon/Desktop/Ecoregions/Coral cover/GitHub_code"
+cyclone_directory = "D:/Lab Data/Global/Cyclone/cyclone"
+historical_sst_directory = "D:/historical_sst/1x1_resolution"
+turbidity_directory = "C:/Users/Shannon/Desktop/Ecoregions"
+shapefiles_directory = "C:/Users/Shannon/Desktop/Ecoregions/shapefiles"
+diversity_data_directory = "C:/Users/Shannon/Desktop/Ecoregions/Coral cover"
+output_directory = "C:/Users/Shannon/Desktop/Ecoregions/Coral cover/output"
+
+#future sea surface temperature
+future_sst_directory<-"D:/high_res_SST"
+#future degree heating weeks
+future_dhw_directory<-"D:/future_sst/dhw_yearly_max_rcp45_rcp85"
+
+#set path for the external hard drive where you have downloaded the CoRTAD data
+Cortad_directory="D:/Cortad_2020"
+
+#read in the Reef Check csv
+setwd(coral_cover_directory)
+coral_cover_data <- read.csv(file="raw_Reef_Check_data.csv", header=TRUE, sep=",")
+
+```{r format Reef Check date to match the CoRTAD date format (days after 19811231)}
+coral_cover_data=subset(coral_cover_data, !is.na(Latitude.Degrees))
+coral_cover_data=subset(coral_cover_data, !is.na(Longitude.Degrees))
+coral_cover_data=subset(coral_cover_data, !is.na(Average_coral_cover))
+coral_cover_data=subset(coral_cover_data, !is.na(Depth))
+
+coral_cover_data$year<-coral_cover_data$Date_Year
+
+year_split_function<-function(x){
+  year=as.numeric(str_split(x, "/")[[1]][3])
+  return(year)
+}
+
+coral_cover_data$year<-NA
+for(i in 1:nrow(coral_cover_data)){
+  coral_cover_data$year[i] <- year_split_function(coral_cover_data$Date[i])
+}
+
+days_since_19811231<-array(0, dim=dim(coral_cover_data)[1])
+for (i in 1:dim(coral_cover_data)[1])
+{
+
+date_string<-str_split(coral_cover_data$Date[i], "/")
+day_string<-date_string[[1]][2]
+day_numeric<-as.numeric(day_string)
+month_string<-date_string[[1]][1]
+if (month_string=="1"){days_since_19811231_due_to_month_number<-0}
+if (month_string=="2"){days_since_19811231_due_to_month_number<-31}
+if (month_string=="3"){days_since_19811231_due_to_month_number<-59}
+if (month_string=="4"){days_since_19811231_due_to_month_number<-90}
+if (month_string=="5"){days_since_19811231_due_to_month_number<-120}
+if (month_string=="6"){days_since_19811231_due_to_month_number<-151}
+if (month_string=="7"){days_since_19811231_due_to_month_number<-181}
+if (month_string=="8"){days_since_19811231_due_to_month_number<-212}
+if (month_string=="9"){days_since_19811231_due_to_month_number<-243}
+if (month_string=="10"){days_since_19811231_due_to_month_number<-273}
+if (month_string=="11"){days_since_19811231_due_to_month_number<-304}
+if (month_string=="12"){days_since_19811231_due_to_month_number<-334}
+year_string<-date_string[[1]][3]
+year_numeric<-as.numeric(year_string)
+
+if( (year_numeric>1984) | (year_numeric==1984 & month_string!="1" & month_string!="2"))
+{leap_year_days<-1}
+if( (year_numeric>1988) | (year_numeric==1988 & month_string!="1" & month_string!="2"))
+{leap_year_days<-2}
+if( (year_numeric>1992) | (year_numeric==1992 & month_string!="1" & month_string!="2"))
+{leap_year_days<-3}
+if( (year_numeric>1996) | (year_numeric==1996 & month_string!="1" & month_string!="2"))
+{leap_year_days<-4}
+if( (year_numeric>2000) | (year_numeric==2000 & month_string!="1" & month_string!="2"))
+{leap_year_days<-5}
+if( (year_numeric>2004) | (year_numeric==2004 & month_string!="1" & month_string!="2"))
+{leap_year_days<-6}
+if( (year_numeric>2008) | (year_numeric==2008 & month_string!="1" & month_string!="2"))
+{leap_year_days<-7}
+if( (year_numeric>2012) | (year_numeric==2012 & month_string!="1" & month_string!="2"))
+{leap_year_days<-8}
+if( (year_numeric>2016) | (year_numeric==2016 & month_string!="1" & month_string!="2"))
+{leap_year_days<-9}
+if( (year_numeric>2020) | (year_numeric==2020 & month_string!="1" & month_string!="2"))
+{leap_year_days<-10}
+
+days_since_19811231[i]<-((year_numeric-1982)*365)+days_since_19811231_due_to_month_number+day_numeric+leap_year_days
+
+}
+coral_cover_data$days_since_19811231<-days_since_19811231
+```
+
+```{r Data formatting: format lat and lon, calculate average coral cover, remove data points that have NA values for lat, lon, average coral cover, depth, or date}
+
+#Remove NA's
+coral_cover_data=subset(coral_cover_data, !is.na(Latitude.Degrees))
+coral_cover_data=subset(coral_cover_data, !is.na(Longitude.Degrees))
+coral_cover_data=subset(coral_cover_data, !is.na(Average_coral_cover))
+coral_cover_data=subset(coral_cover_data, !is.na(Depth))
+coral_cover_data=subset(coral_cover_data, !is.na(Date))
+
+#note: after removing rows with NA's we are left with 13077 surveys
+
+#Average coral cover in the Reef Check data csv is reported relative to 40 quadrats, so we divide by 40 to get percent
+coral_cover_data$Average_coral_cover<-as.numeric(as.character(coral_cover_data$Average_coral_cover))/40
+
+coral_cover_data$Ocean<-coral_cover_data$Ocean_Name
+
+coral_cover_data<- subset(coral_cover_data, select=c(Reef_ID, Latitude.Degrees, Longitude.Degrees, Ocean, Realm, Ecoregion, Country_Name, State_Island_Province, City_Town, City_Town_2, City_Town_3, Depth, Organism.Code, Bleaching_S1, Bleaching_S2, Bleaching_S3, Bleaching_S4, Average_Bleaching, Average_coral_cover, days_since_19811231, year))
+
+number_of_surveys=dim(coral_cover_data)[1]
+```
+
+```{r open one NetCDF file and look at the dimensions}
+setwd(Cortad_directory)
+#FilledSST<-nc_open("outfile_1.nc", write=FALSE, readunlim=TRUE, verbose=FALSE)
+FilledSST<-nc_open("cortadv6_outfile.nc", write=FALSE, readunlim=TRUE, verbose=FALSE)
+names(FilledSST$var) #prints a list of the variable names
+#time_bounds, lat_bounds, lon_bounds, crs, land, NumberGood, AllBad, FilledSST, FilledSSTminimum, FilledSSTmaximum, FilledSSTstandardDeviation, FilledSSTmean
+FilledSST_time_bounds<-ncvar_get(FilledSST, varid="time_bnds")
+dim(FilledSST_time_bounds) #2 1878
+
+FilledSST_lat_bounds<-ncvar_get(FilledSST, varid="lat_bnds")
+dim(FilledSST_lat_bounds) #2 4320
+
+FilledSST_lon_bounds<-ncvar_get(FilledSST, varid="lon_bnds")
+dim(FilledSST_lon_bounds) #2 8640
+
+FilledSST_land<-ncvar_get(FilledSST, varid="land")
+#0 or 1
+dim(FilledSST_land) #8640 4320
+```
+
+```{r check the grid cell size}
+#checking if the grid is evenly split. it's very close. each step is between .04165649 and .04167175
+difference<-array(0, dim=(length(FilledSST_lon_bounds[1,])-1))
+for (i in 1:(dim(FilledSST_lon_bounds)[2]-1))
+{difference[i]<-FilledSST_lon_bounds[1,(i+1)]-FilledSST_lon_bounds[1,i]}
+```
+
+```{r calculate latitude grid cell}
+coral_cover_cortad_lat_cell<-array(0, dim=number_of_surveys)
+lat_step<--1*(FilledSST_lat_bounds[2,dim(FilledSST_lat_bounds)[2]]-FilledSST_lat_bounds[1,1])/(dim(FilledSST_lat_bounds)[2]+1)
+
+for (i in 1:number_of_surveys)
+{
+lat_grid_cell<-NA
+
+if(is.na(coral_cover_data$Latitude.Degrees[i]))
+{lat_grid_cell<-NA}else{
+n_lat_steps<-floor((FilledSST_lat_bounds[1,1]-coral_cover_data$Latitude.Degrees[i])/lat_step+1)
+
+  if(FilledSST_lat_bounds[1,n_lat_steps]>=coral_cover_data$Latitude.Degrees[i])
+  {
+    if(FilledSST_lat_bounds[2,n_lat_steps]<=coral_cover_data$Latitude.Degrees[i])
+    {lat_grid_cell<-n_lat_steps}
+    else
+    {
+      repeat{
+        n_lat_steps=n_lat_steps+1
+        if(FilledSST_lat_bounds[1,n_lat_steps]>coral_cover_data$Latitude.Degrees[i]){
+          if(FilledSST_lat_bounds[2,n_lat_steps]<=coral_cover_data$Latitude.Degrees[i])
+          {break}
+        }
+      }
+      lat_grid_cell<-n_lat_steps
+    }
+    
+  }
+  
+  if(FilledSST_lat_bounds[1,n_lat_steps]<coral_cover_data$Latitude.Degrees[i])
+  {
+  repeat{
+      n_lat_steps=n_lat_steps-1
+      if(FilledSST_lat_bounds[1,n_lat_steps]>=coral_cover_data$Latitude.Degrees[i])
+      {
+        if(FilledSST_lat_bounds[2,n_lat_steps]<=coral_cover_data$Latitude.Degrees[i])
+        {break}
+      }
+    }
+    lat_grid_cell<-n_lat_steps
+  }
+}
+  coral_cover_cortad_lat_cell[i]<-lat_grid_cell
+}
+```
+
+```{r calculate longitude grid cell}
+coral_cover_cortad_lon_cell<-array(0, dim=number_of_surveys)
+lon_step<-(FilledSST_lon_bounds[1,dim(FilledSST_lon_bounds)[2]]-FilledSST_lon_bounds[1,1])/(dim(FilledSST_lon_bounds)[2]+1)
+
+for (i in 1:length(coral_cover_data$Longitude.Degrees))
+{
+lon_grid_cell<-NA
+
+if(is.na(coral_cover_data$Longitude.Degrees[i]))
+{lon_grid_cell<-NA}else{
+n_lon_steps<-floor(-1*(FilledSST_lon_bounds[1,1]-coral_cover_data$Longitude.Degrees[i])/lon_step+1)
+
+  if(n_lon_steps>(dim(FilledSST_lon_bounds)[2])){n_lon_steps<-(dim(FilledSST_lon_bounds)[2])}
+  if(n_lon_steps<1){n_lon_steps<-1}
+
+  if(FilledSST_lon_bounds[1,n_lon_steps]<=coral_cover_data$Longitude.Degrees[i])
+  {
+    if(FilledSST_lon_bounds[2,n_lon_steps]>coral_cover_data$Longitude.Degrees[i])
+    {lon_grid_cell<-n_lon_steps}
+    else
+    {
+      repeat{
+        n_lon_steps=n_lon_steps+1
+        if(n_lon_steps>(dim(FilledSST_lon_bounds)[2])){break}
+        if(FilledSST_lon_bounds[1,n_lon_steps]<=coral_cover_data$Longitude.Degrees[i]){
+          if(FilledSST_lon_bounds[2,n_lon_steps]>coral_cover_data$Longitude.Degrees[i])
+          {break}
+        }
+      }
+      lon_grid_cell<-n_lon_steps
+    }
+    
+  }
+  
+  if(FilledSST_lon_bounds[1,n_lon_steps]>coral_cover_data$Longitude.Degrees[i])
+  {
+  repeat{
+      n_lon_steps=n_lon_steps-1
+      if(n_lon_steps==0){break}
+      if(FilledSST_lon_bounds[1,n_lon_steps]<=coral_cover_data$Longitude.Degrees[i])
+      {
+        if(FilledSST_lon_bounds[2,n_lon_steps]>coral_cover_data$Longitude.Degrees[i])
+        {break}
+      }
+    }
+    lon_grid_cell<-n_lon_steps
+  }
+}
+  coral_cover_cortad_lon_cell[i]<-lon_grid_cell
+}
+
+```
+
+```{r initialize some arrays to fill with the appropriate cortad data}
+coral_cover_cortad_temperature_Minimum<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_temperature_Maximum<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_temperature_Mean<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_temperature_standardDeviation<-array(NA, dim=number_of_surveys)
+
+coral_cover_cortad_SSTA_Minimum<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_SSTA_Mean<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_SSTA_Maximum<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_SSTA_StandardDeviation<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_SSTA_FrequencyMax<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_SSTA_FrequencyMean<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_SSTA_FrequencyStandardDeviation<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_SSTA_DHWMax<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_SSTA_DHWMean<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_SSTA_DHWStandardDeviation<-array(NA, dim=number_of_surveys)
+
+coral_cover_cortad_TSA_StandardDeviation<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_TSA_Minimum<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_TSA_Maximum<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_TSA_Mean<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_TSA_FrequencyMax<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_TSA_FrequencyMean<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_TSA_FrequencyStandardDeviation<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_TSA_DHWMax<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_TSA_DHWMean<-array(NA, dim=number_of_surveys)
+coral_cover_cortad_TSA_DHWStandardDeviation<-array(NA, dim=number_of_surveys)
+
+coral_cover_cortad_ClimSST<-array(NA, dim=number_of_surveys)
+```
+
+```{r open all the netcdf files you will need}
+FilledSST<-nc_open("cortadv6_outfile.nc", write=FALSE, readunlim=TRUE, verbose=FALSE)
+names(FilledSST$var) #FilledSST, FilledSSTminimum, FilledSSTmaximum, FilledSSTstandardDeviation, FilledSSTmean
+
+SSTA<-nc_open("cortadv6_SSTA.nc", write=FALSE, readunlim=TRUE, verbose=FALSE)
+names(SSTA$var) #SSTA_Minimum, SSTA_Maximum, SSTA_StandardDeviation, SSTA_Mean, SSTA_AbsoluteValueMean, SSTA_Frequency, SSTA_FrequencyMax, SSTA_FrequencyStandardDeviation, SSTA_FrequencyMean, SSTA_DHW,  SSTA_DHWMax, SSTA_DHWStandardDeviation, SSTA_DHWMean
+
+TSA<-nc_open("cortadv6_TSA.nc", write=FALSE, readunlim=TRUE, verbose=FALSE)
+names(TSA$var) #TSA, TSA_Minimum, TSA_Maximum, TSA_StandardDeviation, TSA_Mean, TSA_Frequency, TSA_FrequencyMax, TSA_FrequencyStandardDeviation, TSA_FrequencyMean, TSA_DHW, TSA_DHWMax, TSA_DHWStandardDeviation, TSA_DHWMean
+
+HarmonicsClimatology<-nc_open("cortadv6_HarmonicsClimatology.nc", write=FALSE, readunlim=TRUE, verbose=FALSE)
+names(HarmonicsClimatology$var) #ClimSST, AnnualAmplitudeCoefficient, AnnualPhaseCoefficient, SemiAnnualAmplitudeCoefficient, SemiAnnualPhaseCoefficient, MeanCoefficient, LSqFitFlag
+```
+
+```{r calculate day index in the Cortad data}
+#SST uses one index because it has a monthly resolution. the other variables use another index because they have a weekly resolution
+SST_coral_cover_cortad_day_index<-array(0, dim=number_of_surveys)
+SST_max_index_of_CoRTAD<-dim(FilledSST_time_bounds)[2]+1
+
+for (i in 1:number_of_surveys)
+{
+  minimum<- min(abs(days_since_19811231[i]-FilledSST$var$time_bnds$dim[[2]]$vals))
+  for (j in 1:length(FilledSST$var$time_bnds$dim[[2]]$vals))
+  {
+    if (abs(days_since_19811231[i]-FilledSST$var$time_bnds$dim[[2]]$vals[j])==minimum)
+    {
+      SST_coral_cover_cortad_day_index[i]<-j
+    }
+
+  }
+if (SST_coral_cover_cortad_day_index[i]>SST_max_index_of_CoRTAD){SST_coral_cover_cortad_day_index[i]<-NA}
+}
+
+
+
+time_bounds<-ncvar_get(SSTA, varid="time_bounds")
+dim(time_bounds) #2 
+#SSTA or TSA
+coral_cover_cortad_day_index<-array(0, dim=number_of_surveys)
+max_index_of_CoRTAD<-dim(time_bounds)[2]+1
+for (i in 1:number_of_surveys)
+{
+coral_cover_cortad_day_index[i]<-floor((days_since_19811231[i]+time_bounds[1,1])/7)+1
+
+if (coral_cover_cortad_day_index[i]>max_index_of_CoRTAD){coral_cover_cortad_day_index[i]<-NA}
+}
+```
+
+```{r make the functions for grabbing the correct CoRTAD grid cell}
+first_pass_function_Harmonics<-function(netcdf_variable_name, variable_id){
+  result<-try(ncvar_get(netcdf_variable_name, varid=variable_id, start=c(coral_cover_cortad_lon_cell[i],coral_cover_cortad_lat_cell[i], (coral_cover_cortad_day_index[i]%%52+1)), count=c(1,1,1)), silent=TRUE)
+  return(result)
+}
+
+first_pass_function_3d_mean<-function(netcdf_variable_name, variable_id){
+  result<-try(mean(ncvar_get(netcdf_variable_name, varid=variable_id, start=c(coral_cover_cortad_lon_cell[i],coral_cover_cortad_lat_cell[i],coral_cover_cortad_day_index[i]-155), count=c(1,1,156))), silent=TRUE)
+  return(result)
+}
+
+first_pass_function_3d_min<-function(netcdf_variable_name, variable_id){
+  result<-try(min(ncvar_get(netcdf_variable_name, varid=variable_id, start=c(coral_cover_cortad_lon_cell[i],coral_cover_cortad_lat_cell[i],coral_cover_cortad_day_index[i]-155), count=c(1,1,156))), silent=TRUE)
+  return(result)
+}
+
+first_pass_function_3d_max<-function(netcdf_variable_name, variable_id){
+  result<-try(max(ncvar_get(netcdf_variable_name, varid=variable_id, start=c(coral_cover_cortad_lon_cell[i],coral_cover_cortad_lat_cell[i],coral_cover_cortad_day_index[i]-155), count=c(1,1,156))), silent=TRUE)
+  return(result)
+}
+
+first_pass_function_3d_sd<-function(netcdf_variable_name, variable_id){
+  result<-try(sd(ncvar_get(netcdf_variable_name, varid=variable_id, start=c(coral_cover_cortad_lon_cell[i],coral_cover_cortad_lat_cell[i],coral_cover_cortad_day_index[i]-155), count=c(1,1,156))), silent=TRUE)
+  return(result)
+}
+
+first_pass_function_3d_SST_mean<-function(netcdf_variable_name, variable_id){
+  result<-try(mean(ncvar_get(netcdf_variable_name, varid=variable_id, start=c(coral_cover_cortad_lon_cell[i],coral_cover_cortad_lat_cell[i],SST_coral_cover_cortad_day_index[i]-35), count=c(1,1,36))), silent=TRUE)
+  return(result)
+}
+
+first_pass_function_3d_SST_max<-function(netcdf_variable_name, variable_id){
+  result<-try(max(ncvar_get(netcdf_variable_name, varid=variable_id, start=c(coral_cover_cortad_lon_cell[i],coral_cover_cortad_lat_cell[i],SST_coral_cover_cortad_day_index[i]-35), count=c(1,1,36))), silent=TRUE)
+  return(result)
+}
+
+first_pass_function_3d_SST_min<-function(netcdf_variable_name, variable_id){
+  result<-try(min(ncvar_get(netcdf_variable_name, varid=variable_id, start=c(coral_cover_cortad_lon_cell[i],coral_cover_cortad_lat_cell[i],SST_coral_cover_cortad_day_index[i]-35), count=c(1,1,36))), silent=TRUE)
+  return(result)
+}
+
+first_pass_function_3d_SST_sd<-function(netcdf_variable_name, variable_id){
+  result<-try(sd(ncvar_get(netcdf_variable_name, varid=variable_id, start=c(coral_cover_cortad_lon_cell[i],coral_cover_cortad_lat_cell[i],SST_coral_cover_cortad_day_index[i]-35), count=c(1,1,36))), silent=TRUE)
+  return(result)
+}
+
+
+second_pass_3d_mean<-function(netcdf_variable_name, variable_id){
+      expand=1
+      result=NA
+      repeat{
+        expanded_grid<-try(ncvar_get(netcdf_variable_name, varid=variable_id, start=c((coral_cover_cortad_lon_cell[i]-expand),(coral_cover_cortad_lat_cell[i]-expand),coral_cover_cortad_day_index[i]-155), count=c((1+2*expand),(1+2*expand),156)), silent=TRUE)
+        
+        if(sum(is.na(expanded_grid))==((1+2*expand)*(1+2*expand)))
+        {expand=expand+1
+        if (expand>=3){break}
+        }
+        else{
+        result<-mean(expanded_grid, na.rm=TRUE)
+        break}
+      }
+      return(result)
+}
+
+second_pass_3d_min<-function(netcdf_variable_name, variable_id){
+      expand=1
+      result=NA
+      repeat{
+        expanded_grid<-try(ncvar_get(netcdf_variable_name, varid=variable_id, start=c((coral_cover_cortad_lon_cell[i]-expand),(coral_cover_cortad_lat_cell[i]-expand),coral_cover_cortad_day_index[i]-155), count=c((1+2*expand),(1+2*expand),156)), silent=TRUE)
+        
+        if(sum(is.na(expanded_grid))==((1+2*expand)*(1+2*expand)))
+        {expand=expand+1
+        if (expand>=3){break}
+        }
+        else{
+        result<-min(expanded_grid, na.rm=TRUE)
+        break}
+      }
+      return(result)
+}
+
+second_pass_3d_max<-function(netcdf_variable_name, variable_id){
+      expand=1
+      result=NA
+      repeat{
+        expanded_grid<-try(ncvar_get(netcdf_variable_name, varid=variable_id, start=c((coral_cover_cortad_lon_cell[i]-expand),(coral_cover_cortad_lat_cell[i]-expand),coral_cover_cortad_day_index[i]-155), count=c((1+2*expand),(1+2*expand),156)), silent=TRUE)
+        
+        if(sum(is.na(expanded_grid))==((1+2*expand)*(1+2*expand)))
+        {expand=expand+1
+        if (expand>=3){break}
+        }
+        else{
+        result<-max(expanded_grid, na.rm=TRUE)
+        break}
+      }
+      return(result)
+}
+
+second_pass_3d_sd<-function(netcdf_variable_name, variable_id){
+      expand=1
+      result=NA
+      repeat{
+        expanded_grid<-try(ncvar_get(netcdf_variable_name, varid=variable_id, start=c((coral_cover_cortad_lon_cell[i]-expand),(coral_cover_cortad_lat_cell[i]-expand),coral_cover_cortad_day_index[i]-155), count=c((1+2*expand),(1+2*expand),156)), silent=TRUE)
+        
+        if(sum(is.na(expanded_grid))==((1+2*expand)*(1+2*expand)))
+        {expand=expand+1
+        if (expand>=3){break}
+        }
+        else{
+        result<-sd(expanded_grid, na.rm=TRUE)
+        break}
+      }
+      return(result)
+}
+
+second_pass_3d_SST_mean<-function(netcdf_variable_name, variable_id){
+      expand=1
+      result=NA
+      repeat{
+        expanded_grid<-try(ncvar_get(netcdf_variable_name, varid=variable_id, start=c((coral_cover_cortad_lon_cell[i]-expand),(coral_cover_cortad_lat_cell[i]-expand),SST_coral_cover_cortad_day_index[i]-35), count=c((1+2*expand),(1+2*expand),36)), silent=TRUE)
+        
+        if(sum(is.na(expanded_grid))==((1+2*expand)*(1+2*expand)))
+        {expand=expand+1
+        if (expand>=3){break}
+        }
+        else{
+        result<-mean(expanded_grid, na.rm=TRUE)
+        break}
+      }
+      return(result)
+}
+
+second_pass_3d_SST_min<-function(netcdf_variable_name, variable_id){
+      expand=1
+      result=NA
+      repeat{
+        expanded_grid<-try(ncvar_get(netcdf_variable_name, varid=variable_id, start=c((coral_cover_cortad_lon_cell[i]-expand),(coral_cover_cortad_lat_cell[i]-expand),SST_coral_cover_cortad_day_index[i]-35), count=c((1+2*expand),(1+2*expand),36)), silent=TRUE)
+        
+        if(sum(is.na(expanded_grid))==((1+2*expand)*(1+2*expand)))
+        {expand=expand+1
+        if (expand>=3){break}
+        }
+        else{
+        result<-min(expanded_grid, na.rm=TRUE)
+        break}
+      }
+      return(result)
+}
+
+second_pass_3d_SST_max<-function(netcdf_variable_name, variable_id){
+      expand=1
+      result=NA
+      repeat{
+        expanded_grid<-try(ncvar_get(netcdf_variable_name, varid=variable_id, start=c((coral_cover_cortad_lon_cell[i]-expand),(coral_cover_cortad_lat_cell[i]-expand),SST_coral_cover_cortad_day_index[i]-35), count=c((1+2*expand),(1+2*expand),36)), silent=TRUE)
+        
+        if(sum(is.na(expanded_grid))==((1+2*expand)*(1+2*expand)))
+        {expand=expand+1
+        if (expand>=3){break}
+        }
+        else{
+        result<-max(expanded_grid, na.rm=TRUE)
+        break}
+      }
+      return(result)
+}
+
+second_pass_3d_SST_sd<-function(netcdf_variable_name, variable_id){
+      expand=1
+      result=NA
+      repeat{
+        expanded_grid<-try(ncvar_get(netcdf_variable_name, varid=variable_id, start=c((coral_cover_cortad_lon_cell[i]-expand),(coral_cover_cortad_lat_cell[i]-expand),SST_coral_cover_cortad_day_index[i]-35), count=c((1+2*expand),(1+2*expand),36)), silent=TRUE)
+        
+        if(sum(is.na(expanded_grid))==((1+2*expand)*(1+2*expand)))
+        {expand=expand+1
+        if (expand>=3){break}
+        }
+        else{
+        result<-sd(expanded_grid, na.rm=TRUE)
+        break}
+      }
+      return(result)
+}
+
+second_pass_Harmonics<-function(netcdf_variable_name, variable_id){
+      expand=1
+      result=NA
+      repeat{
+        expanded_grid<-try(ncvar_get(netcdf_variable_name, varid=variable_id, start=c((coral_cover_cortad_lon_cell[i]-expand),(coral_cover_cortad_lat_cell[i]-expand), (coral_cover_cortad_day_index[i]%%52)+1), count=c((1+2*expand),(1+2*expand),1)), silent=TRUE)
+        
+        if(sum(is.na(expanded_grid))==((1+2*expand)*(1+2*expand)))
+        {expand=expand+1
+        if (expand>=3){break}
+        }
+        else{
+        result<-mean(expanded_grid, na.rm=TRUE)
+        break}
+      }
+      return(result)
+}
+```
+
+```{r for each Reef Check survey grab the corresponding Cortad variables}
+for (i in 1:number_of_surveys)
+{
+  if(!is.na(coral_cover_cortad_day_index[i]))
+  {
+        coral_cover_cortad_ClimSST[i]<-first_pass_function_Harmonics(HarmonicsClimatology, "ClimSST")
+        coral_cover_cortad_temperature_Minimum[i]<-first_pass_function_3d_SST_min(FilledSST, "FilledSST")
+        coral_cover_cortad_temperature_Maximum[i]<-first_pass_function_3d_SST_max(FilledSST, "FilledSST")
+        coral_cover_cortad_temperature_Mean[i]<-first_pass_function_3d_SST_mean(FilledSST, "FilledSST")
+        coral_cover_cortad_temperature_standardDeviation[i]<-first_pass_function_3d_SST_sd(FilledSST, "FilledSST")
+        coral_cover_cortad_SSTA_StandardDeviation[i]<-first_pass_function_3d_sd(SSTA, "SSTA")
+        coral_cover_cortad_SSTA_Mean[i]<-first_pass_function_3d_mean(SSTA, "SSTA")
+        coral_cover_cortad_SSTA_Maximum[i]<-first_pass_function_3d_max(SSTA,"SSTA")
+        coral_cover_cortad_SSTA_Minimum[i]<-first_pass_function_3d_min(SSTA, "SSTA")
+        coral_cover_cortad_SSTA_FrequencyStandardDeviation[i]<-first_pass_function_3d_sd(SSTA, "SSTA_Frequency")
+        coral_cover_cortad_SSTA_FrequencyMax[i]<-first_pass_function_3d_max(SSTA, "SSTA_Frequency")
+        coral_cover_cortad_SSTA_FrequencyMean[i]<-first_pass_function_3d_mean(SSTA, "SSTA_Frequency")
+        coral_cover_cortad_SSTA_DHWStandardDeviation[i]<-first_pass_function_3d_sd(SSTA, "SSTA_DHW")
+        coral_cover_cortad_SSTA_DHWMax[i]<-first_pass_function_3d_max(SSTA, "SSTA_DHW")
+        coral_cover_cortad_SSTA_DHWMean[i]<-first_pass_function_3d_mean(SSTA, "SSTA_DHW")
+        coral_cover_cortad_TSA_StandardDeviation[i]<-first_pass_function_3d_sd(TSA, "TSA")
+        coral_cover_cortad_TSA_Maximum[i]<-first_pass_function_3d_max(TSA, "TSA")
+        coral_cover_cortad_TSA_Minimum[i]<-first_pass_function_3d_min(TSA, "TSA")
+        coral_cover_cortad_TSA_Mean[i]<-first_pass_function_3d_mean(TSA, "TSA")
+        coral_cover_cortad_TSA_FrequencyStandardDeviation[i]<-first_pass_function_3d_sd(TSA, "TSA_Frequency")
+        coral_cover_cortad_TSA_FrequencyMax[i]<-first_pass_function_3d_max(TSA, "TSA_Frequency")
+        coral_cover_cortad_TSA_FrequencyMean[i]<-first_pass_function_3d_mean(TSA, "TSA_Frequency")
+        coral_cover_cortad_TSA_DHWStandardDeviation[i]<-first_pass_function_3d_sd(TSA, "TSA_DHW")
+        coral_cover_cortad_TSA_DHWMax[i]<-first_pass_function_3d_max(TSA, "TSA_DHW")
+        coral_cover_cortad_TSA_DHWMean[i]<-first_pass_function_3d_mean(TSA, "TSA_DHW")
+      }
+  print(i)
+}
+
+setwd(coral_cover_directory)
+#write.csv(coral_cover_cortad_ClimSST, file = "ClimSST.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_temperature_Minimum, file = "SST_min.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_temperature_Maximum, file = "SST_max.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_temperature_Mean, file = "SST_mean.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_temperature_standardDeviation, file = "SST_sd.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_SSTA_StandardDeviation, file = "SSTA_sd.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_SSTA_Mean, file = "SSTA_mean.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_SSTA_Maximum, file = "SSTA_max.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_SSTA_Minimum, file = "SSTA_min.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_SSTA_FrequencyStandardDeviation, file = "SSTA_freq_sd.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_SSTA_FrequencyMax, file = "SSTA_freq_max.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_SSTA_FrequencyMean, file = "SSTA_freq_mean.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_SSTA_DHWStandardDeviation, file = "SSTA_dhw_sd.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_SSTA_DHWMax, file = "SSTA_dhw_max.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_SSTA_DHWMean, file = "SSTA_dhw_mean.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_TSA_StandardDeviation, file = "TSA_sd.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_TSA_Maximum, file = "TSA_max.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_TSA_Minimum, file = "TSA_min.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_TSA_Mean, file = "TSA_mean.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_TSA_FrequencyStandardDeviation, file = "TSA_freq_sd.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_TSA_FrequencyMax, file = "TSA_freq_max.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_TSA_FrequencyMean, file = "TSA_freq_mean.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_TSA_DHWStandardDeviation, file = "TSA_dhw_sd.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_TSA_DHWMax, file = "TSA_dhw_max.csv", row.names=FALSE)
+#write.csv(coral_cover_cortad_TSA_DHWMean, file = "TSA_dhw_mean.csv", row.names=FALSE)
+
+#coral_cover_cortad_ClimSST<-read.csv(file = "ClimSST.csv")[,1]
+#coral_cover_cortad_temperature_Minimum<-read.csv(file = "SST_min.csv")[,1]
+#coral_cover_cortad_temperature_Maximum<-read.csv(file = "SST_max.csv")[,1]
+#coral_cover_cortad_temperature_Mean<-read.csv(file = "SST_mean.csv")[,1]
+#coral_cover_cortad_temperature_standardDeviation<-read.csv(file = "SST_sd.csv")[,1]
+#coral_cover_cortad_SSTA_StandardDeviation<-read.csv(file = "SSTA_sd.csv")[,1]
+#coral_cover_cortad_SSTA_Mean<-read.csv(file = "SSTA_mean.csv")[,1]
+#coral_cover_cortad_SSTA_Maximum<-read.csv(file = "SSTA_max.csv")[,1]
+#coral_cover_cortad_SSTA_Minimum<-read.csv(file = "SSTA_min.csv")[,1]
+#coral_cover_cortad_SSTA_FrequencyStandardDeviation<-read.csv(file = "SSTA_freq_sd.csv")[,1]
+#coral_cover_cortad_SSTA_FrequencyMax<-read.csv(file = "SSTA_freq_max.csv")[,1]
+#coral_cover_cortad_SSTA_FrequencyMean<-read.csv(file = "SSTA_freq_mean.csv")[,1]
+#coral_cover_cortad_SSTA_DHWStandardDeviation<-read.csv(file = "SSTA_dhw_sd.csv")[,1]
+#coral_cover_cortad_SSTA_DHWMax<-read.csv(file = "SSTA_dhw_max.csv")[,1]
+#coral_cover_cortad_SSTA_DHWMean<-read.csv(file = "SSTA_dhw_mean.csv")[,1]
+#coral_cover_cortad_TSA_StandardDeviation<-read.csv(file = "TSA_sd.csv")[,1]
+#coral_cover_cortad_TSA_Maximum<-read.csv(file = "TSA_max.csv")[,1]
+#coral_cover_cortad_TSA_Minimum<-read.csv(file = "TSA_min.csv")[,1]
+#coral_cover_cortad_TSA_Mean<-read.csv(file = "TSA_mean.csv")[,1]
+#coral_cover_cortad_TSA_FrequencyStandardDeviation<-read.csv(file = "TSA_freq_sd.csv")[,1]
+#coral_cover_cortad_TSA_FrequencyMax<-read.csv(file = "TSA_freq_max.csv")[,1]
+#coral_cover_cortad_TSA_FrequencyMean<-read.csv(file = "TSA_freq_mean.csv")[,1]
+#coral_cover_cortad_TSA_DHWStandardDeviation<-read.csv(file = "TSA_dhw_sd.csv")[,1]
+#coral_cover_cortad_TSA_DHWMax<-read.csv(file = "TSA_dhw_max.csv")[,1]
+#coral_cover_cortad_TSA_DHWMean<-read.csv(file = "TSA_dhw_mean.csv")[,1]
+
+
+
+
+coral_cover_cortad_temperature_standardDeviation<-as.numeric(as.character(coral_cover_cortad_temperature_standardDeviation))
+coral_cover_cortad_SSTA_StandardDeviation<-as.numeric(as.character(coral_cover_cortad_SSTA_StandardDeviation))
+coral_cover_cortad_SSTA_Mean<-as.numeric(as.character(coral_cover_cortad_SSTA_Mean))
+coral_cover_cortad_SSTA_Maximum<-as.numeric(as.character(coral_cover_cortad_SSTA_Maximum))
+coral_cover_cortad_SSTA_FrequencyStandardDeviation<-as.numeric(as.character(coral_cover_cortad_SSTA_FrequencyStandardDeviation))
+coral_cover_cortad_SSTA_FrequencyMax<-as.numeric(as.character(coral_cover_cortad_SSTA_FrequencyMax))
+coral_cover_cortad_SSTA_FrequencyMean<-as.numeric(as.character(coral_cover_cortad_SSTA_FrequencyMean))
+coral_cover_cortad_SSTA_DHWStandardDeviation<-as.numeric(as.character(coral_cover_cortad_SSTA_DHWStandardDeviation))
+coral_cover_cortad_SSTA_DHWMax<-as.numeric(as.character(coral_cover_cortad_SSTA_DHWMax))
+coral_cover_cortad_SSTA_DHWMean<-as.numeric(as.character(coral_cover_cortad_SSTA_DHWMean))
+coral_cover_cortad_TSA_StandardDeviation<-as.numeric(as.character(coral_cover_cortad_TSA_StandardDeviation))
+coral_cover_cortad_TSA_Maximum<-as.numeric(as.character(coral_cover_cortad_TSA_Maximum))
+coral_cover_cortad_TSA_Mean<-as.numeric(as.character(coral_cover_cortad_TSA_Mean))
+coral_cover_cortad_TSA_FrequencyStandardDeviation<-as.numeric(as.character(coral_cover_cortad_TSA_FrequencyStandardDeviation))
+coral_cover_cortad_TSA_FrequencyMax<-as.numeric(as.character(coral_cover_cortad_TSA_FrequencyMax))
+coral_cover_cortad_TSA_FrequencyMean<-as.numeric(as.character(coral_cover_cortad_TSA_FrequencyMean))
+coral_cover_cortad_TSA_DHWStandardDeviation<-as.numeric(as.character(coral_cover_cortad_TSA_DHWStandardDeviation))
+coral_cover_cortad_TSA_DHWMax<-as.numeric(as.character(coral_cover_cortad_TSA_DHWMax))
+coral_cover_cortad_TSA_DHWMean<-as.numeric(as.character(coral_cover_cortad_TSA_DHWMean))
+
+coral_cover_cortad_ClimSST<-as.numeric(as.character(coral_cover_cortad_ClimSST))
+coral_cover_cortad_TSA_Minimum<-as.numeric(as.character(coral_cover_cortad_TSA_Minimum))
+coral_cover_cortad_SSTA_Minimum<-as.numeric(as.character(coral_cover_cortad_SSTA_Minimum))
+coral_cover_cortad_temperature_Minimum<-as.numeric(as.character(coral_cover_cortad_temperature_Minimum))
+coral_cover_cortad_temperature_Maximum<-as.numeric(as.character(coral_cover_cortad_temperature_Maximum))
+coral_cover_cortad_temperature_Mean<-as.numeric(as.character(coral_cover_cortad_temperature_Mean))
+```
+
+```{r write a csv of the data}
+setwd(coral_cover_directory)
+
+RC_with_cortad_variables<-cbind(coral_cover_data, coral_cover_cortad_ClimSST, coral_cover_cortad_temperature_Mean, coral_cover_cortad_temperature_Minimum, coral_cover_cortad_temperature_Maximum, coral_cover_cortad_temperature_standardDeviation, coral_cover_cortad_SSTA_StandardDeviation, coral_cover_cortad_SSTA_Mean, coral_cover_cortad_SSTA_Minimum, coral_cover_cortad_SSTA_Maximum, coral_cover_cortad_SSTA_FrequencyStandardDeviation, coral_cover_cortad_SSTA_FrequencyMax, coral_cover_cortad_SSTA_FrequencyMean, coral_cover_cortad_SSTA_DHWStandardDeviation, coral_cover_cortad_SSTA_DHWMax, coral_cover_cortad_SSTA_DHWMean, coral_cover_cortad_TSA_StandardDeviation, coral_cover_cortad_TSA_Minimum, coral_cover_cortad_TSA_Maximum, coral_cover_cortad_TSA_Mean, coral_cover_cortad_TSA_FrequencyStandardDeviation, coral_cover_cortad_TSA_FrequencyMax, coral_cover_cortad_TSA_FrequencyMean, coral_cover_cortad_TSA_DHWStandardDeviation, coral_cover_cortad_TSA_DHWMax, coral_cover_cortad_TSA_DHWMean)
+
+number_of_columns<-dim(coral_cover_data)[2]
+colnames(RC_with_cortad_variables)[number_of_columns+1]<-"ClimSST"
+colnames(RC_with_cortad_variables)[number_of_columns+2]<-"Temperature_Mean"
+colnames(RC_with_cortad_variables)[number_of_columns+3]<-"Temperature_Minimum"
+colnames(RC_with_cortad_variables)[number_of_columns+4]<-"Temperature_Maximum"
+colnames(RC_with_cortad_variables)[number_of_columns+5]<-"Temperature_Kelvin_Standard_Deviation"
+colnames(RC_with_cortad_variables)[number_of_columns+6]<-"SSTA_Standard_Deviation"
+colnames(RC_with_cortad_variables)[number_of_columns+7]<-"SSTA_Mean"
+colnames(RC_with_cortad_variables)[number_of_columns+8]<-"SSTA_Minimum"
+colnames(RC_with_cortad_variables)[number_of_columns+9]<-"SSTA_Maximum"
+colnames(RC_with_cortad_variables)[number_of_columns+10]<-"SSTA_Frequency_Standard_Deviation"
+colnames(RC_with_cortad_variables)[number_of_columns+11]<-"SSTA_FrequencyMax"
+colnames(RC_with_cortad_variables)[number_of_columns+12]<-"SSTA_FrequencyMean"
+colnames(RC_with_cortad_variables)[number_of_columns+13]<-"SSTA_DHW_Standard_Deviation"
+colnames(RC_with_cortad_variables)[number_of_columns+14]<-"SSTA_DHWMax"
+colnames(RC_with_cortad_variables)[number_of_columns+15]<-"SSTA_DHWMean"
+colnames(RC_with_cortad_variables)[number_of_columns+16]<-"TSA_Standard_Deviation"
+colnames(RC_with_cortad_variables)[number_of_columns+17]<-"TSA_Minimum"
+colnames(RC_with_cortad_variables)[number_of_columns+18]<-"TSA_Maximum"
+colnames(RC_with_cortad_variables)[number_of_columns+19]<-"TSA_Mean"
+colnames(RC_with_cortad_variables)[number_of_columns+20]<-"TSA_Frequency_Standard_Deviation"
+colnames(RC_with_cortad_variables)[number_of_columns+21]<-"TSA_FrequencyMax"
+colnames(RC_with_cortad_variables)[number_of_columns+22]<-"TSA_FrequencyMean"
+colnames(RC_with_cortad_variables)[number_of_columns+23]<-"TSA_DHW_Standard_Deviation"
+colnames(RC_with_cortad_variables)[number_of_columns+24]<-"TSA_DHWMax"
+colnames(RC_with_cortad_variables)[number_of_columns+25]<-"TSA_DHWMean"
+
+```
+
+#save off a copy of the data up to this point
+write.csv(RC_with_cortad_variables, file = "Reef_Check_with_cortad_variables.csv", row.names=FALSE)
+coral_cover_data <- read.csv(file="Reef_Check_with_cortad_variables.csv", header=TRUE, sep=",")
+
+```{r close the netcdf files}
+setwd(Cortad_directory)
+nc_close(FilledSST)
+nc_close(HarmonicsClimatology)
+nc_close(SSTA)
+nc_close(TSA)
+
+```
+
+coral_cover_data$reef <- coral_cover_data$Reef_ID
+
+```{r read in and format turbidity, cyclone, diversity data}
+#turbidity data
+setwd(turbidity_directory)
+turbidity_raster_min <- raster("turbidity_raster_min.nc")
+turbidity_raster_min[turbidity_raster_min>1] <- 1
+turbidity_raster_max <- raster("turbidity_raster_max.nc")
+turbidity_raster_max[turbidity_raster_max>1] <- 1
+turbidity_raster_mean <- raster("turbidity_raster_mean.nc")
+turbidity_raster_mean[turbidity_raster_mean>1] <- 1
+
+#cyclone data
+setwd(cyclone_directory)
+cyclone_raster <- raster("cyclone frequency yr-1.nc")
+
+#historical sst data
+setwd(historical_sst_directory)
+historical_sst_sd <- raster("historical_sst_sd.tif")
+#the rotate() function changes how the raster is centered. We need it to match the rest of our data
+historical_sst_sd<-rotate(historical_sst_sd)
+historical_sst_max <- raster("historical_sst_max.tif")
+historical_sst_max<-rotate(historical_sst_max)
+#convert from Celcius to Kelvin so that all temperature measurements are on the same scale
+historical_sst_max<-historical_sst_max+273.15
+historical_sst_mean <- raster("historical_sst_mean.tif")
+historical_sst_mean<-rotate(historical_sst_mean)
+#convert from Celcius to Kelvin so that all temperature measurements are on the same scale
+historical_sst_mean<-historical_sst_mean+273.15
+
+#diversity data
+diversity<-read.csv(file=file.path(diversity_data_directory, "coral_diversity_for_coral_cover.csv"), header=TRUE, sep=",")
+names(diversity)[1]<-"Ecoregion"
+diversity$Region<-diversity$Ecoregion
+diversity<-diversity[order(diversity$Ecoregion),]
+
+```
+
+```{r read in and format shapefiles of a world map, and ecoregion boundaries}
+wlrd.p <- readOGR(file.path(shapefiles_directory,'TM_WORLD_BORDERS_SIMPL_PC150.shp'))
+ECO <- readOGR(file.path(shapefiles_directory,'ecoregion_exportPolygon.shp')) # ecoregions
+
+ecos_list<-c()
+for (i in 1:150){
+  eco_i<-Polygons((Filter(function(f){f@ringDir==1}, ECO@polygons[[i]]@Polygons)), ID=i)
+  ecos_list<-append(ecos_list, values=eco_i, after = length(ecos_list))
+  #include a brief pause (Sys.sleep) because if running in Rstudio, it takes a while for the code to run and for the value to be loaded into the global environment. If there is no pause, the next iteration of the loop starts before the previous value is fully saved and loaded into the environment, and there can be errors in the shapefile
+  Sys.sleep(.2)
+}
+ecos<-SpatialPolygons(ecos_list)
+
+ecos$ERG<-ECO$ERG
+ecos$Ecoregion<-ECO$Ecoregion
+ecos@proj4string<-ECO@proj4string
+ecos@plotOrder<-ECO@plotOrder
+ecos@data<-ECO@data
+
+ECO<-ecos
+```
+
+```{r obtain the corresponding temperature, environmental, and human parameters for each reef survey}
+#obtain a list of each unique reef site and get the coordinates for the sites
+reef_id_df<-data.frame(table(coral_cover_data$Reef_ID))
+reef_id_list<-as.character(reef_id_df[,1])
+data_points<-cbind(coral_cover_data$Longitude.Degrees, coral_cover_data$Latitude.Degrees)
+
+result <- raster::extract(cyclone_raster, data_points)
+coral_cover_data$cyclone<-result
+
+result <- raster::extract(turbidity_raster_mean, data_points)
+coral_cover_data$Turbidity_mean<-result
+
+result <- raster::extract(turbidity_raster_max, data_points)
+coral_cover_data$Turbidity_max<-result
+
+result <- raster::extract(turbidity_raster_min, data_points)
+coral_cover_data$Turbidity_min<-result
+
+result <- raster::extract(historical_sst_mean, data_points)
+coral_cover_data$historical_sst_mean<-result
+
+result <- raster::extract(historical_sst_max, data_points)
+coral_cover_data$historical_sst_max<-result
+
+result <- raster::extract(historical_sst_sd, data_points)
+coral_cover_data$historical_sst_sd<-result
+
+#1990, 2000 are from https://sedac.ciesin.columbia.edu/data/set/popdynamics-global-pop-count-time-series-estimates/data-download#close
+human_pop_1990<-raster("D:/human_population/human_population/human_pop_1990/popdynamics-global-pop-count-time-series-estimates_1990.tif")
+coral_cover_data$human_pop_1990_vals<-extract(human_pop_1990, data_points, buffer=10000, fun=sum)
+coral_cover_data$human_pop_1990_vals[is.na(coral_cover_data$human_pop_1990_vals)]<-0
+
+human_pop_2000<-raster("D:/human_population/human_population/human_pop_2000/popdynamics-global-pop-count-time-series-estimates_2000.tif")
+coral_cover_data$human_pop_2000_vals<-extract(human_pop_2000, data_points, buffer=10000, fun=sum)
+coral_cover_data$human_pop_2000_vals[is.na(coral_cover_data$human_pop_2000_vals)]<-0
+
+#2010, 2020, 2050, 2100 are from https://sedac.ciesin.columbia.edu/data/set/popdynamics-1-km-downscaled-pop-base-year-projection-ssp-2000-2100-rev01
+human_pop_2010<-raster("D:/human_population/human_population/human_pop_2000_to_2100_SSP2/SSP2_1km/ssp2_total_2010.nc4")
+coral_cover_data$human_pop_2010_vals<-extract(human_pop_2010, data_points, buffer=10000, fun=sum)
+coral_cover_data$human_pop_2010_vals[is.na(coral_cover_data$human_pop_2010_vals)]<-0
+
+human_pop_2020<-raster("D:/human_population/human_population/human_pop_2000_to_2100_SSP2/SSP2_1km/ssp2_total_2020.nc4")
+coral_cover_data$human_pop_2020_vals<-extract(human_pop_2020, data_points, buffer=10000, fun=sum)
+coral_cover_data$human_pop_2020_vals[is.na(coral_cover_data$human_pop_2020_vals)]<-0
+
+human_pop_2050<-raster("D:/human_population/human_population/human_pop_2000_to_2100_SSP2/SSP2_1km/ssp2_total_2050.nc4")
+coral_cover_data$human_pop_2050_vals<-extract(human_pop_2050, data_points, buffer=10000, fun=sum)
+coral_cover_data$human_pop_2050_vals[is.na(coral_cover_data$human_pop_2050_vals)]<-0
+
+human_pop_2100<-raster("D:/human_population/human_population/human_pop_2000_to_2100_SSP2/SSP2_1km/ssp2_total_2100.nc4")
+coral_cover_data$human_pop_2100_vals<-extract(human_pop_2100, data_points, buffer=10000, fun=sum)
+coral_cover_data$human_pop_2100_vals[is.na(coral_cover_data$human_pop_2100_vals)]<-0
+
+
+calculate_human_pop_function<-function(x, a, b, c, d){
+  if(x<2000){human_pop <- a+(((b-a)/10)*(x-1990))}
+  if(x==2000){human_pop <- b}
+  if(x>2000 & x<2010){human_pop <- b+(((c-b)/10)*(x-2000))}
+  if(x==2010){human_pop <- c}
+  if(x>2010){human_pop <- c+(((d-c)/10)*(x-2010))}
+  return(human_pop)
+}
+
+coral_cover_data$human_pop<-NA
+for(i in 1:nrow(coral_cover_data)){
+  coral_cover_data$human_pop[i]<-calculate_human_pop_function(coral_cover_data$year[i], coral_cover_data$human_pop_1990_vals[i], coral_cover_data$human_pop_2000_vals[i], coral_cover_data$human_pop_2010_vals[i], coral_cover_data$human_pop_2020_vals[i])
+}
+
+coral_cover_data<-subset(coral_cover_data, select = -c(year, human_pop_1990_vals, human_pop_2000_vals, human_pop_2010_vals, human_pop_2020_vals) )
+
+```
+
+names(coral_cover_data)[names(coral_cover_data)=='Temperature_Mean']<-'SST_Mean'
+names(coral_cover_data)[names(coral_cover_data)=='Temperature_Minimum']<-'SST_min'
+names(coral_cover_data)[names(coral_cover_data)=='Temperature_Maximum']<-'SST_max'
+names(coral_cover_data)[names(coral_cover_data)=='Temperature_Kelvin_Standard_Deviation']<-'SST_stdev'
+
+names(coral_cover_data)[names(coral_cover_data)=='SSTA_Mean']<-'SSTA_Mean'
+names(coral_cover_data)[names(coral_cover_data)=='SSTA_Minimum']<-'SSTA_min'
+names(coral_cover_data)[names(coral_cover_data)=='SSTA_Maximum']<-'SSTA_max'
+names(coral_cover_data)[names(coral_cover_data)=='SSTA_Standard_Deviation']<-'SSTA_stdev'
+
+names(coral_cover_data)[names(coral_cover_data)=='SSTA_DHW_Standard_Deviation']<-'SSTA_dhwstdev'
+names(coral_cover_data)[names(coral_cover_data)=='SSTA_DHWMax']<-'SSTA_dhwmax'
+names(coral_cover_data)[names(coral_cover_data)=='SSTA_DHWMean']<-'SSTA_dhwmean'
+
+names(coral_cover_data)[names(coral_cover_data)=='SSTA_FrequencyMean']<-'SSTA_freqmean'
+names(coral_cover_data)[names(coral_cover_data)=='SSTA_FrequencyMax']<-'SSTA_freqmax'
+names(coral_cover_data)[names(coral_cover_data)=='SSTA_Frequency_Standard_Deviation']<-'SSTA_freqstdev'
+
+names(coral_cover_data)[names(coral_cover_data)=='TSA_Mean']<-'TSA_mean'
+names(coral_cover_data)[names(coral_cover_data)=='TSA_Maximum']<-'TSA_max'
+names(coral_cover_data)[names(coral_cover_data)=='TSA_Minimum']<-'TSA_min'
+names(coral_cover_data)[names(coral_cover_data)=='TSA_Standard_Deviation']<-'TSA_stdev'
+
+names(coral_cover_data)[names(coral_cover_data)=='TSA_FrequencyMean']<-'TSA_freqmean'
+names(coral_cover_data)[names(coral_cover_data)=='TSA_FrequencyMax']<-'TSA_freqmax'
+names(coral_cover_data)[names(coral_cover_data)=='TSA_Frequency_Standard_Deviation']<-'TSA_freqstdev'
+
+names(coral_cover_data)[names(coral_cover_data)=='TSA_DHWMean']<-'TSA_dhwmean'
+names(coral_cover_data)[names(coral_cover_data)=='TSA_DHWMax']<-'TSA_dhwmax'
+names(coral_cover_data)[names(coral_cover_data)=='TSA_DHW_Standard_Deviation']<-'TSA_dhwstdev'
+
+var_names<-names(coral_cover_data)
+
+```{r get future mean SST, maximum SST, and future ssta_dhw}
+
+setwd(future_sst_directory)
+
+rcp45<-brick("ensemble_rcp45_v2.nc", var="tos")
+#rcp45_2050_mean<-mean(rcp45[,,493:528]) #too big to work
+
+rcp45_204701<-raster("ensemble_rcp45_v2.nc", var="tos", band=493)
+coral_cover_data$rcp45_204701<-extract(rcp45_204701, data_points)
+
+rcp45_204702<-raster("ensemble_rcp45_v2.nc", var="tos", band=494)
+coral_cover_data$rcp45_204702<-extract(rcp45_204702, data_points)
+
+rcp45_204703<-raster("ensemble_rcp45_v2.nc", var="tos", band=495)
+coral_cover_data$rcp45_204703<-extract(rcp45_204703, data_points)
+
+rcp45_204704<-raster("ensemble_rcp45_v2.nc", var="tos", band=496)
+coral_cover_data$rcp45_204704<-extract(rcp45_204704, data_points)
+
+rcp45_204705<-raster("ensemble_rcp45_v2.nc", var="tos", band=497)
+coral_cover_data$rcp45_204705<-extract(rcp45_204705, data_points)
+
+rcp45_204706<-raster("ensemble_rcp45_v2.nc", var="tos", band=498)
+coral_cover_data$rcp45_204706<-extract(rcp45_204706, data_points)
+
+rcp45_204707<-raster("ensemble_rcp45_v2.nc", var="tos", band=499)
+coral_cover_data$rcp45_204707<-extract(rcp45_204707, data_points)
+
+rcp45_204708<-raster("ensemble_rcp45_v2.nc", var="tos", band=500)
+coral_cover_data$rcp45_204708<-extract(rcp45_204708, data_points)
+
+rcp45_204709<-raster("ensemble_rcp45_v2.nc", var="tos", band=501)
+coral_cover_data$rcp45_204709<-extract(rcp45_204709, data_points)
+
+rcp45_204710<-raster("ensemble_rcp45_v2.nc", var="tos", band=502)
+coral_cover_data$rcp45_204710<-extract(rcp45_204710, data_points)
+
+rcp45_204711<-raster("ensemble_rcp45_v2.nc", var="tos", band=503)
+coral_cover_data$rcp45_204711<-extract(rcp45_204711, data_points)
+
+rcp45_204712<-raster("ensemble_rcp45_v2.nc", var="tos", band=504)
+coral_cover_data$rcp45_204712<-extract(rcp45_204712, data_points)
+
+rcp45_204801<-raster("ensemble_rcp45_v2.nc", var="tos", band=505)
+coral_cover_data$rcp45_204801<-extract(rcp45_204801, data_points)
+
+rcp45_204802<-raster("ensemble_rcp45_v2.nc", var="tos", band=506)
+coral_cover_data$rcp45_204802<-extract(rcp45_204802, data_points)
+
+rcp45_204803<-raster("ensemble_rcp45_v2.nc", var="tos", band=507)
+coral_cover_data$rcp45_204803<-extract(rcp45_204803, data_points)
+
+rcp45_204804<-raster("ensemble_rcp45_v2.nc", var="tos", band=508)
+coral_cover_data$rcp45_204804<-extract(rcp45_204804, data_points)
+
+rcp45_204805<-raster("ensemble_rcp45_v2.nc", var="tos", band=509)
+coral_cover_data$rcp45_204805<-extract(rcp45_204805, data_points)
+
+rcp45_204806<-raster("ensemble_rcp45_v2.nc", var="tos", band=510)
+coral_cover_data$rcp45_204806<-extract(rcp45_204806, data_points)
+
+rcp45_204807<-raster("ensemble_rcp45_v2.nc", var="tos", band=511)
+coral_cover_data$rcp45_204807<-extract(rcp45_204807, data_points)
+
+rcp45_204808<-raster("ensemble_rcp45_v2.nc", var="tos", band=512)
+coral_cover_data$rcp45_204808<-extract(rcp45_204808, data_points)
+
+rcp45_204809<-raster("ensemble_rcp45_v2.nc", var="tos", band=513)
+coral_cover_data$rcp45_204809<-extract(rcp45_204809, data_points)
+
+rcp45_204810<-raster("ensemble_rcp45_v2.nc", var="tos", band=514)
+coral_cover_data$rcp45_204810<-extract(rcp45_204810, data_points)
+
+rcp45_204811<-raster("ensemble_rcp45_v2.nc", var="tos", band=515)
+coral_cover_data$rcp45_204811<-extract(rcp45_204811, data_points)
+
+rcp45_204812<-raster("ensemble_rcp45_v2.nc", var="tos", band=516)
+coral_cover_data$rcp45_204812<-extract(rcp45_204812, data_points)
+
+rcp45_204901<-raster("ensemble_rcp45_v2.nc", var="tos", band=517)
+coral_cover_data$rcp45_204901<-extract(rcp45_204901, data_points)
+
+rcp45_204902<-raster("ensemble_rcp45_v2.nc", var="tos", band=518)
+coral_cover_data$rcp45_204902<-extract(rcp45_204902, data_points)
+
+rcp45_204903<-raster("ensemble_rcp45_v2.nc", var="tos", band=519)
+coral_cover_data$rcp45_204903<-extract(rcp45_204903, data_points)
+
+rcp45_204904<-raster("ensemble_rcp45_v2.nc", var="tos", band=520)
+coral_cover_data$rcp45_204904<-extract(rcp45_204904, data_points)
+
+rcp45_204905<-raster("ensemble_rcp45_v2.nc", var="tos", band=521)
+coral_cover_data$rcp45_204905<-extract(rcp45_204905, data_points)
+
+rcp45_204906<-raster("ensemble_rcp45_v2.nc", var="tos", band=522)
+coral_cover_data$rcp45_204906<-extract(rcp45_204906, data_points)
+
+rcp45_204907<-raster("ensemble_rcp45_v2.nc", var="tos", band=523)
+coral_cover_data$rcp45_204907<-extract(rcp45_204907, data_points)
+
+rcp45_204908<-raster("ensemble_rcp45_v2.nc", var="tos", band=524)
+coral_cover_data$rcp45_204908<-extract(rcp45_204908, data_points)
+
+rcp45_204909<-raster("ensemble_rcp45_v2.nc", var="tos", band=525)
+coral_cover_data$rcp45_204909<-extract(rcp45_204909, data_points)
+
+rcp45_204910<-raster("ensemble_rcp45_v2.nc", var="tos", band=526)
+coral_cover_data$rcp45_204910<-extract(rcp45_204910, data_points)
+
+rcp45_204911<-raster("ensemble_rcp45_v2.nc", var="tos", band=527)
+coral_cover_data$rcp45_204911<-extract(rcp45_204911, data_points)
+
+rcp45_204912<-raster("ensemble_rcp45_v2.nc", var="tos", band=528)
+coral_cover_data$rcp45_204912<-extract(rcp45_204912, data_points)
+
+
+#################################################
+#2100  uses  2097-2099  [1093:1128]
+
+rcp45_209701<-raster("ensemble_rcp45_v2.nc", var="tos", band=1093)
+coral_cover_data$rcp45_209701<-extract(rcp45_209701, data_points)
+
+rcp45_209702<-raster("ensemble_rcp45_v2.nc", var="tos", band=1094)
+coral_cover_data$rcp45_209702<-extract(rcp45_209702, data_points)
+
+rcp45_209703<-raster("ensemble_rcp45_v2.nc", var="tos", band=1095)
+coral_cover_data$rcp45_209703<-extract(rcp45_209703, data_points)
+
+rcp45_209704<-raster("ensemble_rcp45_v2.nc", var="tos", band=1096)
+coral_cover_data$rcp45_209704<-extract(rcp45_209704, data_points)
+
+rcp45_209705<-raster("ensemble_rcp45_v2.nc", var="tos", band=1097)
+coral_cover_data$rcp45_209705<-extract(rcp45_209705, data_points)
+
+rcp45_209706<-raster("ensemble_rcp45_v2.nc", var="tos", band=1098)
+coral_cover_data$rcp45_209706<-extract(rcp45_209706, data_points)
+
+rcp45_209707<-raster("ensemble_rcp45_v2.nc", var="tos", band=1099)
+coral_cover_data$rcp45_209707<-extract(rcp45_209707, data_points)
+
+rcp45_209708<-raster("ensemble_rcp45_v2.nc", var="tos", band=1100)
+coral_cover_data$rcp45_209708<-extract(rcp45_209708, data_points)
+
+rcp45_209709<-raster("ensemble_rcp45_v2.nc", var="tos", band=1101)
+coral_cover_data$rcp45_209709<-extract(rcp45_209709, data_points)
+
+rcp45_209710<-raster("ensemble_rcp45_v2.nc", var="tos", band=1102)
+coral_cover_data$rcp45_209710<-extract(rcp45_209710, data_points)
+
+rcp45_209711<-raster("ensemble_rcp45_v2.nc", var="tos", band=1103)
+coral_cover_data$rcp45_209711<-extract(rcp45_209711, data_points)
+
+rcp45_209712<-raster("ensemble_rcp45_v2.nc", var="tos", band=1104)
+coral_cover_data$rcp45_209712<-extract(rcp45_209712, data_points)
+
+rcp45_209801<-raster("ensemble_rcp45_v2.nc", var="tos", band=1105)
+coral_cover_data$rcp45_209801<-extract(rcp45_209801, data_points)
+
+rcp45_209802<-raster("ensemble_rcp45_v2.nc", var="tos", band=1106)
+coral_cover_data$rcp45_209802<-extract(rcp45_209802, data_points)
+
+rcp45_209803<-raster("ensemble_rcp45_v2.nc", var="tos", band=1107)
+coral_cover_data$rcp45_209803<-extract(rcp45_209803, data_points)
+
+rcp45_209804<-raster("ensemble_rcp45_v2.nc", var="tos", band=1108)
+coral_cover_data$rcp45_209804<-extract(rcp45_209804, data_points)
+
+rcp45_209805<-raster("ensemble_rcp45_v2.nc", var="tos", band=1109)
+coral_cover_data$rcp45_209805<-extract(rcp45_209805, data_points)
+
+rcp45_209806<-raster("ensemble_rcp45_v2.nc", var="tos", band=1110)
+coral_cover_data$rcp45_209806<-extract(rcp45_209806, data_points)
+
+rcp45_209807<-raster("ensemble_rcp45_v2.nc", var="tos", band=1111)
+coral_cover_data$rcp45_209807<-extract(rcp45_209807, data_points)
+
+rcp45_209808<-raster("ensemble_rcp45_v2.nc", var="tos", band=1112)
+coral_cover_data$rcp45_209808<-extract(rcp45_209808, data_points)
+
+rcp45_209809<-raster("ensemble_rcp45_v2.nc", var="tos", band=1113)
+coral_cover_data$rcp45_209809<-extract(rcp45_209809, data_points)
+
+rcp45_209810<-raster("ensemble_rcp45_v2.nc", var="tos", band=1114)
+coral_cover_data$rcp45_209810<-extract(rcp45_209810, data_points)
+
+rcp45_209811<-raster("ensemble_rcp45_v2.nc", var="tos", band=1115)
+coral_cover_data$rcp45_209811<-extract(rcp45_209811, data_points)
+
+rcp45_209812<-raster("ensemble_rcp45_v2.nc", var="tos", band=1116)
+coral_cover_data$rcp45_209812<-extract(rcp45_209812, data_points)
+
+rcp45_209901<-raster("ensemble_rcp45_v2.nc", var="tos", band=1117)
+coral_cover_data$rcp45_209901<-extract(rcp45_209901, data_points)
+
+rcp45_209902<-raster("ensemble_rcp45_v2.nc", var="tos", band=1118)
+coral_cover_data$rcp45_209902<-extract(rcp45_209902, data_points)
+
+rcp45_209903<-raster("ensemble_rcp45_v2.nc", var="tos", band=1119)
+coral_cover_data$rcp45_209903<-extract(rcp45_209903, data_points)
+
+rcp45_209904<-raster("ensemble_rcp45_v2.nc", var="tos", band=1120)
+coral_cover_data$rcp45_209904<-extract(rcp45_209904, data_points)
+
+rcp45_209905<-raster("ensemble_rcp45_v2.nc", var="tos", band=1121)
+coral_cover_data$rcp45_209905<-extract(rcp45_209905, data_points)
+
+rcp45_209906<-raster("ensemble_rcp45_v2.nc", var="tos", band=1122)
+coral_cover_data$rcp45_209906<-extract(rcp45_209906, data_points)
+
+rcp45_209907<-raster("ensemble_rcp45_v2.nc", var="tos", band=1123)
+coral_cover_data$rcp45_209907<-extract(rcp45_209907, data_points)
+
+rcp45_209908<-raster("ensemble_rcp45_v2.nc", var="tos", band=1124)
+coral_cover_data$rcp45_209908<-extract(rcp45_209908, data_points)
+
+rcp45_209909<-raster("ensemble_rcp45_v2.nc", var="tos", band=1125)
+coral_cover_data$rcp45_209909<-extract(rcp45_209909, data_points)
+
+rcp45_209910<-raster("ensemble_rcp45_v2.nc", var="tos", band=1126)
+coral_cover_data$rcp45_209910<-extract(rcp45_209910, data_points)
+
+rcp45_209911<-raster("ensemble_rcp45_v2.nc", var="tos", band=1127)
+coral_cover_data$rcp45_209911<-extract(rcp45_209911, data_points)
+
+rcp45_209912<-raster("ensemble_rcp45_v2.nc", var="tos", band=1128)
+coral_cover_data$rcp45_209912<-extract(rcp45_209912, data_points)
+
+##############################################################
+rcp85<-brick("ensemble_rcp85_download.nc", var="tos")
+
+rcp85_204701<-raster("ensemble_rcp85_download.nc", var="tos", band=493)
+coral_cover_data$rcp85_204701<-extract(rcp85_204701, data_points)
+
+rcp85_204702<-raster("ensemble_rcp85_download.nc", var="tos", band=494)
+coral_cover_data$rcp85_204702<-extract(rcp85_204702, data_points)
+
+rcp85_204703<-raster("ensemble_rcp85_download.nc", var="tos", band=495)
+coral_cover_data$rcp85_204703<-extract(rcp85_204703, data_points)
+
+rcp85_204704<-raster("ensemble_rcp85_download.nc", var="tos", band=496)
+coral_cover_data$rcp85_204704<-extract(rcp85_204704, data_points)
+
+rcp85_204705<-raster("ensemble_rcp85_download.nc", var="tos", band=497)
+coral_cover_data$rcp85_204705<-extract(rcp85_204705, data_points)
+
+rcp85_204706<-raster("ensemble_rcp85_download.nc", var="tos", band=498)
+coral_cover_data$rcp85_204706<-extract(rcp85_204706, data_points)
+
+rcp85_204707<-raster("ensemble_rcp85_download.nc", var="tos", band=499)
+coral_cover_data$rcp85_204707<-extract(rcp85_204707, data_points)
+
+rcp85_204708<-raster("ensemble_rcp85_download.nc", var="tos", band=500)
+coral_cover_data$rcp85_204708<-extract(rcp85_204708, data_points)
+
+rcp85_204709<-raster("ensemble_rcp85_download.nc", var="tos", band=501)
+coral_cover_data$rcp85_204709<-extract(rcp85_204709, data_points)
+
+rcp85_204710<-raster("ensemble_rcp85_download.nc", var="tos", band=502)
+coral_cover_data$rcp85_204710<-extract(rcp85_204710, data_points)
+
+rcp85_204711<-raster("ensemble_rcp85_download.nc", var="tos", band=503)
+coral_cover_data$rcp85_204711<-extract(rcp85_204711, data_points)
+
+rcp85_204712<-raster("ensemble_rcp85_download.nc", var="tos", band=504)
+coral_cover_data$rcp85_204712<-extract(rcp85_204712, data_points)
+
+rcp85_204801<-raster("ensemble_rcp85_download.nc", var="tos", band=505)
+coral_cover_data$rcp85_204801<-extract(rcp85_204801, data_points)
+
+rcp85_204802<-raster("ensemble_rcp85_download.nc", var="tos", band=506)
+coral_cover_data$rcp85_204802<-extract(rcp85_204802, data_points)
+
+rcp85_204803<-raster("ensemble_rcp85_download.nc", var="tos", band=507)
+coral_cover_data$rcp85_204803<-extract(rcp85_204803, data_points)
+
+rcp85_204804<-raster("ensemble_rcp85_download.nc", var="tos", band=508)
+coral_cover_data$rcp85_204804<-extract(rcp85_204804, data_points)
+
+rcp85_204805<-raster("ensemble_rcp85_download.nc", var="tos", band=509)
+coral_cover_data$rcp85_204805<-extract(rcp85_204805, data_points)
+
+rcp85_204806<-raster("ensemble_rcp85_download.nc", var="tos", band=510)
+coral_cover_data$rcp85_204806<-extract(rcp85_204806, data_points)
+
+rcp85_204807<-raster("ensemble_rcp85_download.nc", var="tos", band=511)
+coral_cover_data$rcp85_204807<-extract(rcp85_204807, data_points)
+
+rcp85_204808<-raster("ensemble_rcp85_download.nc", var="tos", band=512)
+coral_cover_data$rcp85_204808<-extract(rcp85_204808, data_points)
+
+rcp85_204809<-raster("ensemble_rcp85_download.nc", var="tos", band=513)
+coral_cover_data$rcp85_204809<-extract(rcp85_204809, data_points)
+
+rcp85_204810<-raster("ensemble_rcp85_download.nc", var="tos", band=514)
+coral_cover_data$rcp85_204810<-extract(rcp85_204810, data_points)
+
+rcp85_204811<-raster("ensemble_rcp85_download.nc", var="tos", band=515)
+coral_cover_data$rcp85_204811<-extract(rcp85_204811, data_points)
+
+rcp85_204812<-raster("ensemble_rcp85_download.nc", var="tos", band=516)
+coral_cover_data$rcp85_204812<-extract(rcp85_204812, data_points)
+
+rcp85_204901<-raster("ensemble_rcp85_download.nc", var="tos", band=517)
+coral_cover_data$rcp85_204901<-extract(rcp85_204901, data_points)
+
+rcp85_204902<-raster("ensemble_rcp85_download.nc", var="tos", band=518)
+coral_cover_data$rcp85_204902<-extract(rcp85_204902, data_points)
+
+rcp85_204903<-raster("ensemble_rcp85_download.nc", var="tos", band=519)
+coral_cover_data$rcp85_204903<-extract(rcp85_204903, data_points)
+
+rcp85_204904<-raster("ensemble_rcp85_download.nc", var="tos", band=520)
+coral_cover_data$rcp85_204904<-extract(rcp85_204904, data_points)
+
+rcp85_204905<-raster("ensemble_rcp85_download.nc", var="tos", band=521)
+coral_cover_data$rcp85_204905<-extract(rcp85_204905, data_points)
+
+rcp85_204906<-raster("ensemble_rcp85_download.nc", var="tos", band=522)
+coral_cover_data$rcp85_204906<-extract(rcp85_204906, data_points)
+
+rcp85_204907<-raster("ensemble_rcp85_download.nc", var="tos", band=523)
+coral_cover_data$rcp85_204907<-extract(rcp85_204907, data_points)
+
+rcp85_204908<-raster("ensemble_rcp85_download.nc", var="tos", band=524)
+coral_cover_data$rcp85_204908<-extract(rcp85_204908, data_points)
+
+rcp85_204909<-raster("ensemble_rcp85_download.nc", var="tos", band=525)
+coral_cover_data$rcp85_204909<-extract(rcp85_204909, data_points)
+
+rcp85_204910<-raster("ensemble_rcp85_download.nc", var="tos", band=526)
+coral_cover_data$rcp85_204910<-extract(rcp85_204910, data_points)
+
+rcp85_204911<-raster("ensemble_rcp85_download.nc", var="tos", band=527)
+coral_cover_data$rcp85_204911<-extract(rcp85_204911, data_points)
+
+rcp85_204912<-raster("ensemble_rcp85_download.nc", var="tos", band=528)
+coral_cover_data$rcp85_204912<-extract(rcp85_204912, data_points)
+
+
+#################################################
+#2100  uses  2097-2099  [1093:1128]
+
+rcp85_209701<-raster("ensemble_rcp85_download.nc", var="tos", band=1093)
+coral_cover_data$rcp85_209701<-extract(rcp85_209701, data_points)
+
+rcp85_209702<-raster("ensemble_rcp85_download.nc", var="tos", band=1094)
+coral_cover_data$rcp85_209702<-extract(rcp85_209702, data_points)
+
+rcp85_209703<-raster("ensemble_rcp85_download.nc", var="tos", band=1095)
+coral_cover_data$rcp85_209703<-extract(rcp85_209703, data_points)
+
+rcp85_209704<-raster("ensemble_rcp85_download.nc", var="tos", band=1096)
+coral_cover_data$rcp85_209704<-extract(rcp85_209704, data_points)
+
+rcp85_209705<-raster("ensemble_rcp85_download.nc", var="tos", band=1097)
+coral_cover_data$rcp85_209705<-extract(rcp85_209705, data_points)
+
+rcp85_209706<-raster("ensemble_rcp85_download.nc", var="tos", band=1098)
+coral_cover_data$rcp85_209706<-extract(rcp85_209706, data_points)
+
+rcp85_209707<-raster("ensemble_rcp85_download.nc", var="tos", band=1099)
+coral_cover_data$rcp85_209707<-extract(rcp85_209707, data_points)
+
+rcp85_209708<-raster("ensemble_rcp85_download.nc", var="tos", band=1100)
+coral_cover_data$rcp85_209708<-extract(rcp85_209708, data_points)
+
+rcp85_209709<-raster("ensemble_rcp85_download.nc", var="tos", band=1101)
+coral_cover_data$rcp85_209709<-extract(rcp85_209709, data_points)
+
+rcp85_209710<-raster("ensemble_rcp85_download.nc", var="tos", band=1102)
+coral_cover_data$rcp85_209710<-extract(rcp85_209710, data_points)
+
+rcp85_209711<-raster("ensemble_rcp85_download.nc", var="tos", band=1103)
+coral_cover_data$rcp85_209711<-extract(rcp85_209711, data_points)
+
+rcp85_209712<-raster("ensemble_rcp85_download.nc", var="tos", band=1104)
+coral_cover_data$rcp85_209712<-extract(rcp85_209712, data_points)
+
+rcp85_209801<-raster("ensemble_rcp85_download.nc", var="tos", band=1105)
+coral_cover_data$rcp85_209801<-extract(rcp85_209801, data_points)
+
+rcp85_209802<-raster("ensemble_rcp85_download.nc", var="tos", band=1106)
+coral_cover_data$rcp85_209802<-extract(rcp85_209802, data_points)
+
+rcp85_209803<-raster("ensemble_rcp85_download.nc", var="tos", band=1107)
+coral_cover_data$rcp85_209803<-extract(rcp85_209803, data_points)
+
+rcp85_209804<-raster("ensemble_rcp85_download.nc", var="tos", band=1108)
+coral_cover_data$rcp85_209804<-extract(rcp85_209804, data_points)
+
+rcp85_209805<-raster("ensemble_rcp85_download.nc", var="tos", band=1109)
+coral_cover_data$rcp85_209805<-extract(rcp85_209805, data_points)
+
+rcp85_209806<-raster("ensemble_rcp85_download.nc", var="tos", band=1110)
+coral_cover_data$rcp85_209806<-extract(rcp85_209806, data_points)
+
+rcp85_209807<-raster("ensemble_rcp85_download.nc", var="tos", band=1111)
+coral_cover_data$rcp85_209807<-extract(rcp85_209807, data_points)
+
+rcp85_209808<-raster("ensemble_rcp85_download.nc", var="tos", band=1112)
+coral_cover_data$rcp85_209808<-extract(rcp85_209808, data_points)
+
+rcp85_209809<-raster("ensemble_rcp85_download.nc", var="tos", band=1113)
+coral_cover_data$rcp85_209809<-extract(rcp85_209809, data_points)
+
+rcp85_209810<-raster("ensemble_rcp85_download.nc", var="tos", band=1114)
+coral_cover_data$rcp85_209810<-extract(rcp85_209810, data_points)
+
+rcp85_209811<-raster("ensemble_rcp85_download.nc", var="tos", band=1115)
+coral_cover_data$rcp85_209811<-extract(rcp85_209811, data_points)
+
+rcp85_209812<-raster("ensemble_rcp85_download.nc", var="tos", band=1116)
+coral_cover_data$rcp85_209812<-extract(rcp85_209812, data_points)
+
+rcp85_209901<-raster("ensemble_rcp85_download.nc", var="tos", band=1117)
+coral_cover_data$rcp85_209901<-extract(rcp85_209901, data_points)
+
+rcp85_209902<-raster("ensemble_rcp85_download.nc", var="tos", band=1118)
+coral_cover_data$rcp85_209902<-extract(rcp85_209902, data_points)
+
+rcp85_209903<-raster("ensemble_rcp85_download.nc", var="tos", band=1119)
+coral_cover_data$rcp85_209903<-extract(rcp85_209903, data_points)
+
+rcp85_209904<-raster("ensemble_rcp85_download.nc", var="tos", band=1120)
+coral_cover_data$rcp85_209904<-extract(rcp85_209904, data_points)
+
+rcp85_209905<-raster("ensemble_rcp85_download.nc", var="tos", band=1121)
+coral_cover_data$rcp85_209905<-extract(rcp85_209905, data_points)
+
+rcp85_209906<-raster("ensemble_rcp85_download.nc", var="tos", band=1122)
+coral_cover_data$rcp85_209906<-extract(rcp85_209906, data_points)
+
+rcp85_209907<-raster("ensemble_rcp85_download.nc", var="tos", band=1123)
+coral_cover_data$rcp85_209907<-extract(rcp85_209907, data_points)
+
+rcp85_209908<-raster("ensemble_rcp85_download.nc", var="tos", band=1124)
+coral_cover_data$rcp85_209908<-extract(rcp85_209908, data_points)
+
+rcp85_209909<-raster("ensemble_rcp85_download.nc", var="tos", band=1125)
+coral_cover_data$rcp85_209909<-extract(rcp85_209909, data_points)
+
+rcp85_209910<-raster("ensemble_rcp85_download.nc", var="tos", band=1126)
+coral_cover_data$rcp85_209910<-extract(rcp85_209910, data_points)
+
+rcp85_209911<-raster("ensemble_rcp85_download.nc", var="tos", band=1127)
+coral_cover_data$rcp85_209911<-extract(rcp85_209911, data_points)
+
+rcp85_209912<-raster("ensemble_rcp85_download.nc", var="tos", band=1128)
+coral_cover_data$rcp85_209912<-extract(rcp85_209912, data_points)
+
+##############################################################
+
+coral_cover_data$sst_mean_rcp45_2050<-NA
+coral_cover_data$sst_mean_rcp45_2100<-NA
+coral_cover_data$sst_max_rcp45_2050<-NA
+coral_cover_data$sst_max_rcp45_2100<-NA
+
+coral_cover_data$sst_mean_rcp85_2050<-NA
+coral_cover_data$sst_mean_rcp85_2100<-NA
+coral_cover_data$sst_max_rcp85_2050<-NA
+coral_cover_data$sst_max_rcp85_2100<-NA
+
+
+for (i in 1:dim(coral_cover_data)[1]){
+  coral_cover_data$sst_mean_rcp45_2050[i]<-mean(as.numeric(na.omit(coral_cover_data[i,c('rcp45_204701', 'rcp45_204702', 'rcp45_204703', 'rcp45_204704', 'rcp45_204705', 'rcp45_204706', 'rcp45_204707', 'rcp45_204708', 'rcp45_204709', 'rcp45_204710', 'rcp45_204711', 'rcp45_204712', 'rcp45_204801', 'rcp45_204802', 'rcp45_204803', 'rcp45_204804', 'rcp45_204805', 'rcp45_204806', 'rcp45_204807', 'rcp45_204808', 'rcp45_204809', 'rcp45_204810', 'rcp45_204811', 'rcp45_204812', 'rcp45_204901', 'rcp45_204902', 'rcp45_204903', 'rcp45_204904', 'rcp45_204905', 'rcp45_204906', 'rcp45_204907', 'rcp45_204908', 'rcp45_204909', 'rcp45_204910', 'rcp45_204911', 'rcp45_204912')])))
+  coral_cover_data$sst_mean_rcp45_2100[i]<-mean(as.numeric(na.omit(coral_cover_data[i,c('rcp45_209701', 'rcp45_209702', 'rcp45_209703', 'rcp45_209704', 'rcp45_209705', 'rcp45_209706', 'rcp45_209707', 'rcp45_209708', 'rcp45_209709', 'rcp45_209710', 'rcp45_209711', 'rcp45_209712', 'rcp45_209801', 'rcp45_209802', 'rcp45_209803', 'rcp45_209804', 'rcp45_209805', 'rcp45_209806', 'rcp45_209807', 'rcp45_209808', 'rcp45_209809', 'rcp45_209810', 'rcp45_209811', 'rcp45_209812', 'rcp45_209901', 'rcp45_209902', 'rcp45_209903', 'rcp45_209904', 'rcp45_209905', 'rcp45_209906', 'rcp45_209907', 'rcp45_209908', 'rcp45_209909', 'rcp45_209910', 'rcp45_209911', 'rcp45_209912')])))
+  coral_cover_data$sst_max_rcp45_2050[i]<-max(na.omit(coral_cover_data[i,c('rcp45_204701', 'rcp45_204702', 'rcp45_204703', 'rcp45_204704', 'rcp45_204705', 'rcp45_204706', 'rcp45_204707', 'rcp45_204708', 'rcp45_204709', 'rcp45_204710', 'rcp45_204711', 'rcp45_204712', 'rcp45_204801', 'rcp45_204802', 'rcp45_204803', 'rcp45_204804', 'rcp45_204805', 'rcp45_204806', 'rcp45_204807', 'rcp45_204808', 'rcp45_204809', 'rcp45_204810', 'rcp45_204811', 'rcp45_204812', 'rcp45_204901', 'rcp45_204902', 'rcp45_204903', 'rcp45_204904', 'rcp45_204905', 'rcp45_204906', 'rcp45_204907', 'rcp45_204908', 'rcp45_204909', 'rcp45_204910', 'rcp45_204911', 'rcp45_204912')]))
+  coral_cover_data$sst_max_rcp45_2100[i]<-max(na.omit(coral_cover_data[i,c('rcp45_209701', 'rcp45_209702', 'rcp45_209703', 'rcp45_209704', 'rcp45_209705', 'rcp45_209706', 'rcp45_209707', 'rcp45_209708', 'rcp45_209709', 'rcp45_209710', 'rcp45_209711', 'rcp45_209712', 'rcp45_209801', 'rcp45_209802', 'rcp45_209803', 'rcp45_209804', 'rcp45_209805', 'rcp45_209806', 'rcp45_209807', 'rcp45_209808', 'rcp45_209809', 'rcp45_209810', 'rcp45_209811', 'rcp45_209812', 'rcp45_209901', 'rcp45_209902', 'rcp45_209903', 'rcp45_209904', 'rcp45_209905', 'rcp45_209906', 'rcp45_209907', 'rcp45_209908', 'rcp45_209909', 'rcp45_209910', 'rcp45_209911', 'rcp45_209912')]))
+
+
+  coral_cover_data$sst_mean_rcp85_2050[i]<-mean(as.numeric(na.omit(coral_cover_data[i,c('rcp85_204701', 'rcp85_204702', 'rcp85_204703', 'rcp85_204704', 'rcp85_204705', 'rcp85_204706', 'rcp85_204707', 'rcp85_204708', 'rcp85_204709', 'rcp85_204710', 'rcp85_204711', 'rcp85_204712', 'rcp85_204801', 'rcp85_204802', 'rcp85_204803', 'rcp85_204804', 'rcp85_204805', 'rcp85_204806', 'rcp85_204807', 'rcp85_204808', 'rcp85_204809', 'rcp85_204810', 'rcp85_204811', 'rcp85_204812', 'rcp85_204901', 'rcp85_204902', 'rcp85_204903', 'rcp85_204904', 'rcp85_204905', 'rcp85_204906', 'rcp85_204907', 'rcp85_204908', 'rcp85_204909', 'rcp85_204910', 'rcp85_204911', 'rcp85_204912')])))
+  coral_cover_data$sst_mean_rcp85_2100[i]<-mean(as.numeric(na.omit(coral_cover_data[i,c('rcp85_209701', 'rcp85_209702', 'rcp85_209703', 'rcp85_209704', 'rcp85_209705', 'rcp85_209706', 'rcp85_209707', 'rcp85_209708', 'rcp85_209709', 'rcp85_209710', 'rcp85_209711', 'rcp85_209712', 'rcp85_209801', 'rcp85_209802', 'rcp85_209803', 'rcp85_209804', 'rcp85_209805', 'rcp85_209806', 'rcp85_209807', 'rcp85_209808', 'rcp85_209809', 'rcp85_209810', 'rcp85_209811', 'rcp85_209812', 'rcp85_209901', 'rcp85_209902', 'rcp85_209903', 'rcp85_209904', 'rcp85_209905', 'rcp85_209906', 'rcp85_209907', 'rcp85_209908', 'rcp85_209909', 'rcp85_209910', 'rcp85_209911', 'rcp85_209912')])))
+  coral_cover_data$sst_max_rcp85_2050[i]<-max(na.omit(coral_cover_data[i,c('rcp85_204701', 'rcp85_204702', 'rcp85_204703', 'rcp85_204704', 'rcp85_204705', 'rcp85_204706', 'rcp85_204707', 'rcp85_204708', 'rcp85_204709', 'rcp85_204710', 'rcp85_204711', 'rcp85_204712', 'rcp85_204801', 'rcp85_204802', 'rcp85_204803', 'rcp85_204804', 'rcp85_204805', 'rcp85_204806', 'rcp85_204807', 'rcp85_204808', 'rcp85_204809', 'rcp85_204810', 'rcp85_204811', 'rcp85_204812', 'rcp85_204901', 'rcp85_204902', 'rcp85_204903', 'rcp85_204904', 'rcp85_204905', 'rcp85_204906', 'rcp85_204907', 'rcp85_204908', 'rcp85_204909', 'rcp85_204910', 'rcp85_204911', 'rcp85_204912')]))
+  coral_cover_data$sst_max_rcp85_2100[i]<-max(na.omit(coral_cover_data[i,c('rcp85_209701', 'rcp85_209702', 'rcp85_209703', 'rcp85_209704', 'rcp85_209705', 'rcp85_209706', 'rcp85_209707', 'rcp85_209708', 'rcp85_209709', 'rcp85_209710', 'rcp85_209711', 'rcp85_209712', 'rcp85_209801', 'rcp85_209802', 'rcp85_209803', 'rcp85_209804', 'rcp85_209805', 'rcp85_209806', 'rcp85_209807', 'rcp85_209808', 'rcp85_209809', 'rcp85_209810', 'rcp85_209811', 'rcp85_209812', 'rcp85_209901', 'rcp85_209902', 'rcp85_209903', 'rcp85_209904', 'rcp85_209905', 'rcp85_209906', 'rcp85_209907', 'rcp85_209908', 'rcp85_209909', 'rcp85_209910', 'rcp85_209911', 'rcp85_209912')]))
+  
+}
+
+setwd(future_dhw_directory)
+ssta_dhw_rcp45<-brick("dhw_ac_and_mean_replaced_tos_ensemble_rcp45_yearly.nc")
+ssta_dhw_rcp85<-brick("dhw_ac_and_mean_replaced_tos_ensemble_rcp85_yearly.nc")
+
+mean_ssta_dhw_rcp45_2050<-mean(ssta_dhw_rcp45[[42:44]])
+mean_ssta_dhw_rcp45_2050<-rotate(mean_ssta_dhw_rcp45_2050)
+
+max_ssta_dhw_rcp45_2050<-max(ssta_dhw_rcp45[[42:44]])
+max_ssta_dhw_rcp45_2050<-rotate(max_ssta_dhw_rcp45_2050)
+
+mean_ssta_dhw_rcp45_2100<-mean(ssta_dhw_rcp45[[92:94]])
+mean_ssta_dhw_rcp45_2100<-rotate(mean_ssta_dhw_rcp45_2100)
+
+max_ssta_dhw_rcp45_2100<-max(ssta_dhw_rcp45[[92:94]])
+max_ssta_dhw_rcp45_2100<-rotate(max_ssta_dhw_rcp45_2100)
+
+mean_ssta_dhw_rcp85_2050<-mean(ssta_dhw_rcp85[[42:44]])
+mean_ssta_dhw_rcp85_2050<-rotate(mean_ssta_dhw_rcp85_2050)
+
+max_ssta_dhw_rcp85_2050<-max(ssta_dhw_rcp85[[42:44]])
+max_ssta_dhw_rcp85_2050<-rotate(max_ssta_dhw_rcp85_2050)
+
+mean_ssta_dhw_rcp85_2100<-mean(ssta_dhw_rcp85[[92:94]])
+mean_ssta_dhw_rcp85_2100<-rotate(mean_ssta_dhw_rcp85_2100)
+
+max_ssta_dhw_rcp85_2100<-max(ssta_dhw_rcp85[[92:94]])
+max_ssta_dhw_rcp85_2100<-rotate(max_ssta_dhw_rcp85_2100)
+
+coral_cover_data$mean_ssta_dhw_rcp45_2050<-extract(mean_ssta_dhw_rcp45_2050, data_points)
+coral_cover_data$max_ssta_dhw_rcp45_2050<-extract(max_ssta_dhw_rcp45_2050, data_points)
+
+coral_cover_data$mean_ssta_dhw_rcp45_2100<-extract(mean_ssta_dhw_rcp45_2100, data_points)
+coral_cover_data$max_ssta_dhw_rcp45_2100<-extract(max_ssta_dhw_rcp45_2100, data_points)
+
+coral_cover_data$mean_ssta_dhw_rcp85_2050<-extract(mean_ssta_dhw_rcp85_2050, data_points)
+coral_cover_data$max_ssta_dhw_rcp85_2050<-extract(max_ssta_dhw_rcp85_2050, data_points)
+
+coral_cover_data$mean_ssta_dhw_rcp85_2100<-extract(mean_ssta_dhw_rcp85_2100, data_points)
+coral_cover_data$max_ssta_dhw_rcp85_2100<-extract(max_ssta_dhw_rcp85_2100, data_points)
+
+variable_names<-c(var_names, 'sst_mean_rcp45_2050', 'sst_mean_rcp45_2100', 'sst_max_rcp45_2050', 'sst_max_rcp45_2100', 'sst_mean_rcp85_2050', 'sst_mean_rcp85_2100', 'sst_max_rcp85_2050', 'sst_max_rcp85_2100', 'mean_ssta_dhw_rcp45_2050', 'max_ssta_dhw_rcp45_2050', 'mean_ssta_dhw_rcp45_2100', 'max_ssta_dhw_rcp45_2100', 'mean_ssta_dhw_rcp85_2050', 'max_ssta_dhw_rcp85_2050', 'mean_ssta_dhw_rcp85_2100', 'max_ssta_dhw_rcp85_2100')
+col.num <- which(colnames(coral_cover_data) %in% variable_names)
+coral_cover_data <- coral_cover_data[,col.num]
+
+```
+
+#setwd(coral_cover_directory)
+#write.csv(coral_cover_data, file = "Reef_Check_with_cortad_variables_with_human_pop_and_future_ssta_dhw.csv", row.names=FALSE)
+#coral_cover_data <- read.csv(file="Reef_Check_with_cortad_variables_with_human_pop_and_future_ssta_dhw.csv", header=TRUE, sep=",")
+
+```{r set variable names and get ecoregion}
+coral_cover_data$lat<-coral_cover_data$Latitude.Degrees
+coral_cover_data$lon<-coral_cover_data$Longitude_Degrees
+
+
+names(coral_cover_data)[names(coral_cover_data)=="historical_sst_max"]<-'Historical_SST_max'
+names(coral_cover_data)[names(coral_cover_data)=="historical_sst_mean"]<-'Historical_SST_mean'
+names(coral_cover_data)[names(coral_cover_data)=="historical_sst"]<-'Historical_SST_mean'
+names(coral_cover_data)[names(coral_cover_data)=="historical_sst_stdev"]<-'Historical_SST_sd'
+names(coral_cover_data)[names(coral_cover_data)=="historical_sst_sd"]<-'Historical_SST_sd'
+names(coral_cover_data)[names(coral_cover_data)=="cyclone"]<-'Cyclone'
+names(coral_cover_data)[names(coral_cover_data)=="Temperature_Mean"]<-'SST_mean'
+names(coral_cover_data)[names(coral_cover_data)=="SST_Mean"]<-'SST_mean'
+names(coral_cover_data)[names(coral_cover_data)=="Temperature_Maximum"]<-'SST_max'
+names(coral_cover_data)[names(coral_cover_data)=="Temperature_Minimum"]<-'SST_min'
+names(coral_cover_data)[names(coral_cover_data)=="Temperature_Kelvin_Standard_Deviation"]<-'SST_stdev'
+names(coral_cover_data)[names(coral_cover_data)=="SSTA_Standard_Deviation"]<-'SSTA_stdev'
+names(coral_cover_data)[names(coral_cover_data)=="SSTA_Minimum"]<-'SSTA_min'
+names(coral_cover_data)[names(coral_cover_data)=="SSTA_Maximum"]<-'SSTA_max'
+names(coral_cover_data)[names(coral_cover_data)=="SSTA_FrequencyMax"]<-'SSTA_freqmax'
+names(coral_cover_data)[names(coral_cover_data)=="SSTA_FrequencyMean"]<-'SSTA_freqmean'
+names(coral_cover_data)[names(coral_cover_data)=="SSTA_Frequency_Standard_Deviation"]<-'SSTA_freqstdev'
+names(coral_cover_data)[names(coral_cover_data)=="SSTA_DHW_Standard_Deviation"]<-'SSTA_dhwstdev'
+names(coral_cover_data)[names(coral_cover_data)=="SSTA_DHWMean"]<-'SSTA_dhwmean'
+names(coral_cover_data)[names(coral_cover_data)=="SSTA_DHWMax"]<-'SSTA_dhwmax'
+names(coral_cover_data)[names(coral_cover_data)=="TSA_FrequencyMax"]<-'TSA_freqmax'
+names(coral_cover_data)[names(coral_cover_data)=="TSA_Frequency_Standard_Deviation"]<-'TSA_freqstdev'
+names(coral_cover_data)[names(coral_cover_data)=="TSA_FrequencyMean"]<-'TSA_freqmean'
+names(coral_cover_data)[names(coral_cover_data)=="TSA_Minimum"]<-'TSA_min'
+names(coral_cover_data)[names(coral_cover_data)=="TSA_Maximum"]<-'TSA_max'
+names(coral_cover_data)[names(coral_cover_data)=="TSA_Mean"]<-'TSA_mean'
+names(coral_cover_data)[names(coral_cover_data)=="TSA_Standard_Deviation"]<-'TSA_stdev'
+names(coral_cover_data)[names(coral_cover_data)=="TSA_DHWMax"]<-'TSA_dhwmax'
+names(coral_cover_data)[names(coral_cover_data)=="TSA_DHWMean"]<-'TSA_dhwmean'
+names(coral_cover_data)[names(coral_cover_data)=="TSA_DHW_Standard_Deviation"]<-'TSA_dhwstdev'
+names(coral_cover_data)[names(coral_cover_data)=="human_pop"]<-'Human_pop'
+names(coral_cover_data)[names(coral_cover_data)=="sst_sd_rcp45_2050"]<-'sst_stdev_rcp45_2050'
+names(coral_cover_data)[names(coral_cover_data)=="sst_sd_rcp45_2100"]<-'sst_stdev_rcp45_2100'
+names(coral_cover_data)[names(coral_cover_data)=="sst_sd_rcp85_2050"]<-'sst_stdev_rcp85_2050'
+names(coral_cover_data)[names(coral_cover_data)=="sst_sd_rcp85_2100"]<-'sst_stdev_rcp85_2100'
+
+coral_cover_data<-as.data.frame(coral_cover_data)
+
+```
+
+#output file is 'data.csv'
+write.csv(coral_cover_data, file = file.path('data.csv'),row.names=F)
