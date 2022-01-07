@@ -7,6 +7,11 @@ If you would like to work with only the Reef Check coral cover surveys, which we
 
 If you need to run 0_data_processing.Rmd because you are working with new coral cover survey data and need to obtain the corresponding environmental variables, we provide the environmental raster files that fit in GitHub or links to where the data and rasters can be obtained. 
 
+"cyclone frequency yr-1.nc" is the annual cyclone frequency raster.
+"historical_sst_max.tif" is the the historical maximum sea surface temperature raster.
+"historical_sst_mean.tif" is the historical mean monthly sea surface temperature raster.
+"historical_sst_sd.tif" is the historical standard deviation of the mean monthly sea surface tempature
+
 CoRTAD (Coral Reef Temperature Anomaly Database) temperature data, from GHRSST and the US National Centers for Environmental Information and supported in part by a grant from the NOAA Climate Data Record (CDR) Program for satellites, are available for download at https://www.ncei.noaa.gov/data/oceans/cortad/Version6/
 
 SST CoRTAD data can be converted from a weekly resolution to a monthly resolution using Climate Data Operators (instructions at https://code.mpimet.mpg.de/projects/cdo) 
