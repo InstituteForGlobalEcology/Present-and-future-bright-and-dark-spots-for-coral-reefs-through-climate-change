@@ -1,10 +1,11 @@
 # Present_and_future_bright_and_dark_spots_on_coral_reefs_through_climate_change
 
-We recommend skipping the code 0_data_processing.Rmd. Instead, use the output from 0_data_processing.Rmd which we have already obtained and provided (data.csv) for 1_run_the_beta_model and 2_maps_and_graphs.
+The code 0_data_processing.Rmd is only necessary is you have new coral cover surveys (and know the latitude/longitude coordinates and the dates of those surveys) and you would like to obtain the corresponding environmental variables.
+If you would like to work with only the Reef Check coral cover surveys, which we recommend, you can skip 0_data_processing. We have already run that code and provide its output (data.csv) here.
 
 ## Data Access
 
-If you need to run 0_data_processing.Rmd because you are working with new coral cover survey data and need to obtain the corresponding environmental variables, we provide the raster files that fit in GitHub or links to where the data and rasters can be obtained. 
+If you need to run 0_data_processing.Rmd because you are working with new coral cover survey data and need to obtain the corresponding environmental variables, we provide the environmental raster files that fit in GitHub or links to where the data and rasters can be obtained. 
 
 CoRTAD (Coral Reef Temperature Anomaly Database) temperature data, from GHRSST and the US National Centers for Environmental Information and supported in part by a grant from the NOAA Climate Data Record (CDR) Program for satellites, are available for download at https://www.ncei.noaa.gov/data/oceans/cortad/Version6/
 
@@ -56,5 +57,5 @@ To view each KML and its corresponding legend in Google Earth Pro...
 5) Edit the line "\<href\>Input_file_path_here/legend_coral_cover.png\</href\>" with the local file path where you saved the corresponding ".png" legend
 For example, it may look like  \<href\>D:/coral_cover_folder/legend_coral_cover.png\</href\>
 5) Copy the newly edited text from the ".txt" file.
-6) In Google Earth Pro, on the left side under the Places tab, hover over the KML you already loaded. Right click and paste the text on top of the KML.
+6) In Google Earth Pro, on the left side under the "Places" tab, hover over the KML you already loaded. Right click and paste the text on top of the KML.
 7) Look in the top-right corner of Google Earth Pro. The legend should appear
