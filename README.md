@@ -62,7 +62,7 @@ To view each KML and its corresponding legend in Google Earth Pro...
                <rotationXY x="0.5" y="0.5" xunits="fraction" yunits="fraction"/>
                <size x="0" y="0" xunits="pixels" yunits="pixels"/>
           </ScreenOverlay>
-5) Edit the line "\<href\>Input_file_path_here/legend_coral_cover.png\</href\>" with the local file path where you saved the corresponding ".png" legend
+5) Edit the line "\<href\>Input_file_path_here/legend_coral_cover.png\</href\>" with the local file path where you saved the corresponding ".png" legend.
 For example, it may look like  \<href\>D:/coral_cover_folder/legend_coral_cover.png\</href\>
 5) Copy the newly edited text from the ".txt" file.
 6) In Google Earth Pro, on the left side under the "Places" tab, hover over the KML you already loaded. Right click and paste the text on top of the KML.
